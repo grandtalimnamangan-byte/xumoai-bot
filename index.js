@@ -534,6 +534,8 @@ bot.command('img', async (ctx) => {
 // Komandasiz yozilgan hisob-kitob savollarini ham analitik modelga yo'naltiramiz
 const CALC_HINT = /(hisobla|hisob-kitob|foiz|foyda|zarar|chegirma|marja|ustama|tannarx|qqs|nds|kredit|bo['’]?lib to['’]?lash|oylik to['’]?lov|jami qancha|qancha bo['’]?ladi|necha foiz|rentabellik|aylanma)/i;
 const hasNumber = (s) => /\d/.test(s);
+// ==================== INGLIZ TILI MODULI ====================
+require('./english')(bot, { genAI, MODEL, supabase, sendFormatted, esc, myTelegramId });
 
 // ==================== ASOSIY ISHLOVCHI ====================
 bot.on('message', async (ctx) => {
