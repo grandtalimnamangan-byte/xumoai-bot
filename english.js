@@ -200,29 +200,43 @@ ${FORMAT}`,
         return pcmToWav(Buffer.from(part.inlineData.data, 'base64'), rate);
     }
 
-    // Render'da katta fayl yuklashda ulanish uzilishi mumkin — 3 marta urinamiz
+    // Render'da Buffer orqali yuklash ulanishni uzadi — vaqtinchalik faylga yozib, oqim bilan yuboramiz
     async function sendAudioSafe(ctx, wav, caption) {
-        const sizeMb = (wav.length / 1024 / 1024).toFixed(1);
-        console.log(`Audio hajmi: ${sizeMb} MB`);
+        const fs = require('fs');
+        const os = require('os');
+        const path = require('path');
+
+        const sizeMb = (wav.length / 1024 / 1024).toFixed(2);
+        const file = path.join(os.tmpdir(), `listen_${ctx.chat.id}_${Date.now()}.wav`);
+        console.log(`Audio hajmi: ${sizeMb} MB → ${file}`);
+
+        try {
+            fs.writeFileSync(file, wav);
+        } catch (e) {
+            console.error('Faylga yozib bo\'lmadi:', e.message);
+            return false;
+        }
+
+        const cleanup = () => { try { fs.unlinkSync(file); } catch {} };
 
         for (let i = 1; i <= 3; i++) {
             try {
-                await ctx.replyWithAudio(
-                    { source: wav, filename: 'listening.wav' },
-                    { caption, contentType: 'audio/wav' }
-                );
+                await ctx.replyWithAudio({ source: fs.createReadStream(file) }, { caption });
+                cleanup();
                 return true;
             } catch (e) {
                 console.warn(`sendAudio urinish ${i}:`, e.message);
-                if (i < 3) await new Promise((r) => setTimeout(r, 2000 * i));
+                if (i < 3) await new Promise((r) => setTimeout(r, 3000 * i));
             }
         }
 
         try {
-            await ctx.replyWithDocument({ source: wav, filename: 'listening.wav' }, { caption });
+            await ctx.replyWithDocument({ source: fs.createReadStream(file) }, { caption });
+            cleanup();
             return true;
         } catch (e) {
             console.error('sendDocument ham xato:', e.message);
+            cleanup();
             return false;
         }
     }
