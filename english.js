@@ -200,6 +200,33 @@ ${FORMAT}`,
         return pcmToWav(Buffer.from(part.inlineData.data, 'base64'), rate);
     }
 
+    // Render'da katta fayl yuklashda ulanish uzilishi mumkin — 3 marta urinamiz
+    async function sendAudioSafe(ctx, wav, caption) {
+        const sizeMb = (wav.length / 1024 / 1024).toFixed(1);
+        console.log(`Audio hajmi: ${sizeMb} MB`);
+
+        for (let i = 1; i <= 3; i++) {
+            try {
+                await ctx.replyWithAudio(
+                    { source: wav, filename: 'listening.wav' },
+                    { caption, contentType: 'audio/wav' }
+                );
+                return true;
+            } catch (e) {
+                console.warn(`sendAudio urinish ${i}:`, e.message);
+                if (i < 3) await new Promise((r) => setTimeout(r, 2000 * i));
+            }
+        }
+
+        try {
+            await ctx.replyWithDocument({ source: wav, filename: 'listening.wav' }, { caption });
+            return true;
+        } catch (e) {
+            console.error('sendDocument ham xato:', e.message);
+            return false;
+        }
+    }
+
     // ==================== SESSIYALAR ====================
     const sessions = new Map(); // chatId -> { type, data }
 
@@ -450,7 +477,7 @@ FAQAT JSON massiv qaytar:
             const gen = await plain().generateContent(
                 `${p.level} darajadagi o'quvchi uchun listening mashqi tuz.
 
-1. 110-150 so'zlik tabiiy inglizcha MATN yoz (dialog yoki qisqa hikoya). Kundalik mavzu: do'kon, ish, sayohat, kafe, telefon suhbati.
+1. 80-110 so'zlik tabiiy inglizcha MATN yoz (dialog yoki qisqa hikoya). Kundalik mavzu: do'kon, ish, sayohat, kafe, telefon suhbati.
 2. Shu matn bo'yicha 5 ta tushunish savoli yoz (inglizcha).
 
 FAQAT JSON qaytar:
@@ -463,8 +490,8 @@ FAQAT JSON qaytar:
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, '🔊 Ovozga aylantirilyapti...');
             const wav = await textToSpeech(data.script);
 
-            await ctx.replyWithAudio({ source: wav, filename: 'listening.wav' },
-                { caption: '🎧 2 marta tinglang. Matn keyin ko\'rsatiladi.' });
+            const sent = await sendAudioSafe(ctx, wav, "🎧 2 marta tinglang. Matn keyin ko'rsatiladi.");
+            if (!sent) throw new Error('Audio yuborilmadi — tarmoq uzildi yoki fayl katta.');
 
             sessions.set(ctx.chat.id, { type: 'listen_test', data });
             await setMode(ctx.chat.id, 'listen_test');
