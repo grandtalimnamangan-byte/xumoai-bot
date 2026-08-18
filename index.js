@@ -9,7 +9,7 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const myTelegramId = parseInt(process.env.MY_TELEGRAM_ID, 10);
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-const IMAGE_MODEL = process.env.IMAGE_MODEL || 'imagen-4.0-generate-001';
+const IMAGE_MODEL = process.env.IMAGE_MODEL || 'gemini-3.1-flash-image';
 const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== 'false';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -61,7 +61,6 @@ if (ENABLE_SEARCH) modelConfig.tools = [{ googleSearch: {} }];
 const model = genAI.getGenerativeModel(modelConfig);
 const modelNoTools = genAI.getGenerativeModel({ model: MODEL, systemInstruction });
 
-// Prompt kuchaytirish uchun alohida, sof model (persona aralashmasin)
 const promptEnhancer = genAI.getGenerativeModel({
     model: MODEL,
     systemInstruction: `Sen rasm generatsiya promptlari bo'yicha mutaxassissan. Foydalanuvchi qisqa g'oya beradi — sen uni professional, batafsil INGLIZ TILIDAGI promptga aylantirasan.
@@ -197,40 +196,64 @@ async function fileToPart(ctx, fileId, mimeType) {
 }
 
 // ==================== RASM GENERATSIYA ====================
-// Ikki xil API: Imagen -> :predict, Gemini rasm modellari -> :generateContent
-async function generateImages(prompt, aspectRatio, count) {
+// Gemini-native rasm modellari (gemini-*-image) :generateContent orqali ishlaydi.
+// Aspect ratio uzatish usuli model versiyasiga qarab farq qiladi — 3 xil urinish qilamiz.
+async function generateImages(prompt, aspectRatio, refImagePart = null) {
     const isImagen = /imagen/i.test(IMAGE_MODEL);
+    const url = `${API_BASE}/models/${IMAGE_MODEL}:${isImagen ? 'predict' : 'generateContent'}?key=${geminiApiKey}`;
 
     if (isImagen) {
-        const res = await fetch(`${API_BASE}/models/${IMAGE_MODEL}:predict?key=${geminiApiKey}`, {
+        const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                instances: [{ prompt }],
-                parameters: { sampleCount: count, aspectRatio },
-            }),
+            body: JSON.stringify({ instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio } }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
         const preds = data.predictions || [];
-        if (!preds.length) throw new Error('Model rasm qaytarmadi (ehtimol prompt rad etilgan).');
+        if (!preds.length) throw new Error('Model rasm qaytarmadi.');
         return preds.map((p) => Buffer.from(p.bytesBase64Encoded, 'base64'));
     }
 
-    const res = await fetch(`${API_BASE}/models/${IMAGE_MODEL}:generateContent?key=${geminiApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-        }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
-    const parts = data?.candidates?.[0]?.content?.parts || [];
-    const images = parts.filter((p) => p.inlineData).map((p) => Buffer.from(p.inlineData.data, 'base64'));
-    if (!images.length) throw new Error('Model rasm qaytarmadi (ehtimol prompt rad etilgan).');
-    return images;
+    const parts = [{ text: prompt }];
+    if (refImagePart) parts.push(refImagePart);
+
+    const contents = [{ role: 'user', parts }];
+    const contentsWithHint = [{
+        role: 'user',
+        parts: [{ text: `${prompt}\n\nAspect ratio: ${aspectRatio}` }, ...(refImagePart ? [refImagePart] : [])],
+    }];
+
+    const attempts = [
+        { contents, generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio } } },
+        { contents, generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } },
+        { contents: contentsWithHint },
+    ];
+
+    let lastErr;
+    for (const body of attempts) {
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+
+            const rParts = data?.candidates?.[0]?.content?.parts || [];
+            const images = rParts.filter((p) => p.inlineData).map((p) => Buffer.from(p.inlineData.data, 'base64'));
+            if (!images.length) {
+                const reason = data?.candidates?.[0]?.finishReason || '';
+                throw new Error(`Model rasm qaytarmadi. ${reason}`.trim());
+            }
+            return images;
+        } catch (e) {
+            lastErr = e;
+            console.warn('Rasm urinishi muvaffaqiyatsiz:', e.message);
+        }
+    }
+    throw lastErr;
 }
 
 // ==================== KOMANDALAR ====================
@@ -259,9 +282,8 @@ bot.command('status', async (ctx) => {
     );
 });
 
-// Diagnostika — kalitingizda qaysi modellar borligini ko'rsatadi
 bot.command('models', async (ctx) => {
-    const msg = await ctx.reply('⏳ Modellar ro\'yxati olinyapti...');
+    const msg = await ctx.reply("⏳ Modellar ro'yxati olinyapti...");
     try {
         const res = await fetch(`${API_BASE}/models?key=${geminiApiKey}&pageSize=200`);
         const data = await res.json();
@@ -284,17 +306,15 @@ bot.command('models', async (ctx) => {
 });
 
 // /img [nisbat] [!] <tavsif>
-// Misollar:  /img 9:16 tog' cho'qqisidagi quyosh chiqishi
-//            /img !raw english prompt as is
 bot.command('img', async (ctx) => {
     let input = ctx.message.text.replace(/^\/img(@\S+)?\s*/i, '').trim();
 
     if (!input) {
         return ctx.reply(
             "🎨 Foydalanish: /img <tavsif>\n\n" +
-            "Nisbat: /img 9:16 tog'da quyosh chiqishi\n" +
+            "Nisbat bilan: /img 9:16 tog'da quyosh chiqishi\n" +
             "Qo'llab-quvvatlanadi: 1:1, 3:4, 4:3, 9:16, 16:9\n" +
-            "Promptni o'zgartirmasdan yuborish: /img ! your exact prompt"
+            "Promptni o'zgartirmasdan: /img ! your exact english prompt"
         );
     }
 
@@ -325,7 +345,7 @@ bot.command('img', async (ctx) => {
 
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '🖌 Rasm chizilyapti...');
 
-        const images = await generateImages(finalPrompt, aspectRatio, 1);
+        const images = await generateImages(finalPrompt, aspectRatio);
         const caption = `🎨 <b>Prompt:</b>\n${esc(finalPrompt).slice(0, 900)}`;
 
         await ctx.replyWithPhoto({ source: images[0] }, { caption, parse_mode: 'HTML' });
@@ -334,8 +354,7 @@ bot.command('img', async (ctx) => {
     } catch (error) {
         console.error('Rasm generatsiya xatosi:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-            `❌ Rasm chizilmadi: ${(error.message || "noma'lum").slice(0, 400)}\n\n` +
-            `Model: ${IMAGE_MODEL}\n/models yuborib, mavjud modellarni tekshiring.`);
+            `❌ Rasm chizilmadi: ${(error.message || "noma'lum").slice(0, 400)}\n\nModel: ${IMAGE_MODEL}`);
     }
 });
 
@@ -343,7 +362,7 @@ bot.command('img', async (ctx) => {
 bot.on('message', async (ctx) => {
     const m = ctx.message;
     if (!m.text && !m.photo && !m.voice && !m.audio && !m.document) return;
-    if (m.text && m.text.startsWith('/')) return; // komandalar yuqorida ishlangan
+    if (m.text && m.text.startsWith('/')) return;
 
     const loadingMsg = await ctx.reply('⏳ Tahlil qilyapman...');
 
