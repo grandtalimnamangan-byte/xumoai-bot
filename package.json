@@ -1,0 +1,14 @@
+{
+  "name": "xumoai-bot",
+  "version": "1.0.0",
+  "description": "XumoAI Telegram Agent",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^16.4.5",
+    "telegraf": "^4.16.3"
+  }
+}
