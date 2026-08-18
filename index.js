@@ -639,6 +639,34 @@ async function startBot(attempt = 1) {
         }
     }
 }
+
+// ==================== KOMANDALAR MENYUSI ====================
+const COMMANDS = [
+    { command: 'eng',      description: "📚 Bugungi dars" },
+    { command: 'word',     description: "🔁 So'z takrori (new / add)" },
+    { command: 'xato',     description: "📊 Xatolar hisoboti + mashq" },
+    { command: 'read',     description: "📖 O'qish mashqi" },
+    { command: 'listen',   description: "🎧 Tinglash topshirig'i" },
+    { command: 'essay',    description: "✍️ Esse: mavzu + baholash" },
+    { command: 'ielts',    description: "🎤 IELTS Speaking imtihoni" },
+    { command: 'speak',    description: "💬 Danny bilan suhbat" },
+    { command: 'write',    description: "📝 Tayyor matnni baholash" },
+    { command: 'test',     description: "🎯 Daraja tekshiruvi" },
+    { command: 'progress', description: "📈 Statistika" },
+    { command: 'reja',     description: "📅 Haftalik reja" },
+    { command: 'hisob',    description: "🧮 Moliyaviy hisob-kitob" },
+    { command: 'harid',    description: "🛒 Tovar tahlili" },
+    { command: 'img',      description: "🎨 Rasm chizish" },
+    { command: 'stop',     description: "🛑 Rejimdan chiqish" },
+    { command: 'clear',    description: "🧹 Xotirani tozalash" },
+    { command: 'status',   description: "⚙️ Bot holati" },
+    { command: 'models',   description: "📋 Mavjud modellar" },
+    { command: 'start',    description: "🤖 Boshlash" },
+];
+
+bot.telegram.setMyCommands(COMMANDS)
+    .then(() => console.log('📋 Komandalar menyusi o\'rnatildi.'))
+    .catch((e) => console.warn('Menyu o\'rnatilmadi:', e.message));
 startBot();
 
 process.on('unhandledRejection', (r) => console.error('Ushlanmagan rad etish:', r?.message || r));
