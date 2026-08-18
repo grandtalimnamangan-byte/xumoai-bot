@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { createClient } = require('@supabase/supabase-js');
 const http = require('http');
 
 // ==================== KONFIGURATSIYA ====================
@@ -17,6 +18,14 @@ if (!token || !geminiApiKey || !myTelegramId) {
 
 const bot = new Telegraf(token);
 const genAI = new GoogleGenerativeAI(geminiApiKey);
+
+// ==================== SUPABASE (doimiy xotira) ====================
+// SUPABASE_URL / SUPABASE_KEY bo'lmasa — bot faqat RAM xotirasi bilan ishlaydi
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_KEY)
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, { auth: { persistSession: false } })
+    : null;
+
+console.log(supabase ? '💾 Supabase ulandi — xotira doimiy.' : '⚠️ Supabase yo\'q — xotira faqat RAM da.');
 
 // ==================== AI SHAXSIYATI ====================
 const systemInstruction = `Sen Humoyunning shaxsiy AI agenti va bosh yordamchisisan. Isming — XumoAI. Unga har doim "Humoyun" deb murojaat qil.
@@ -40,7 +49,7 @@ JAVOB BERISH QOIDALARI:
 
 FORMATLASH (Telegram uchun muhim):
 - Faqat **qalin**, *kursiv*, \`kod\` va "-" bilan boshlanadigan oddiy ro'yxatlardan foydalan.
-- ### sarlavhalar, --- ajratuvchi chiziqlar, jadvallar va > sitatalardan FOYDALANMA. Ular Telegram'da xunuk chiqadi.
+- ### sarlavhalar, --- ajratuvchi chiziqlar, jadvallar va > sitatalardan FOYDALANMA.
 - Bo'limlarni ajratish kerak bo'lsa — emoji + **qalin sarlavha** ishlat.
 
 USLUB: professional, ijodiy, aniq va qisqa. O'zbek tilida (zarurat bo'lsa ingliz/arab tillarida). O'rinli emojilardan foydalan.`;
@@ -51,9 +60,55 @@ if (ENABLE_SEARCH) modelConfig.tools = [{ googleSearch: {} }];
 const model = genAI.getGenerativeModel(modelConfig);
 const modelNoTools = genAI.getGenerativeModel({ model: MODEL, systemInstruction });
 
-// ==================== XOTIRA ====================
-const chatHistory = new Map();
-const MAX_HISTORY = 20;
+// ==================== XOTIRA QATLAMI ====================
+const cache = new Map();       // RAM kesh — DB ga har safar murojaat qilmaslik uchun
+const MAX_HISTORY = 20;        // 10 juft savol-javob
+
+async function loadHistory(chatId) {
+    if (cache.has(chatId)) return cache.get(chatId);
+
+    if (supabase) {
+        try {
+            const { data, error } = await supabase
+                .from('chat_memory')
+                .select('history')
+                .eq('chat_id', chatId)
+                .maybeSingle();
+            if (error) throw error;
+            const history = data?.history || [];
+            cache.set(chatId, history);
+            return history;
+        } catch (e) {
+            console.error('Supabase o\'qish xatosi:', e.message);
+        }
+    }
+
+    cache.set(chatId, []);
+    return [];
+}
+
+async function saveHistory(chatId, history) {
+    cache.set(chatId, history);
+    if (!supabase) return;
+    try {
+        const { error } = await supabase
+            .from('chat_memory')
+            .upsert({ chat_id: chatId, history, updated_at: new Date().toISOString() });
+        if (error) throw error;
+    } catch (e) {
+        console.error('Supabase yozish xatosi:', e.message);
+    }
+}
+
+async function clearHistory(chatId) {
+    cache.set(chatId, []);
+    if (!supabase) return;
+    try {
+        await supabase.from('chat_memory').delete().eq('chat_id', chatId);
+    } catch (e) {
+        console.error('Supabase o\'chirish xatosi:', e.message);
+    }
+}
 
 // ==================== RENDER SERVER + UYQUGA QARSHI ====================
 const port = process.env.PORT || 3000;
@@ -79,7 +134,6 @@ function mdToHtml(md) {
     const inlines = [];
     let t = md;
 
-    // Kod bloklarini vaqtincha ajratib qo'yamiz
     t = t.replace(/```[a-zA-Z0-9]*\n?([\s\S]*?)```/g, (_, code) => {
         blocks.push(code);
         return `\u0000B${blocks.length - 1}\u0000`;
@@ -91,13 +145,13 @@ function mdToHtml(md) {
 
     t = esc(t);
 
-    t = t.replace(/^\s*([-*_]\s?){3,}\s*$/gm, '');        // --- chiziqlar
-    t = t.replace(/^#{1,6}\s*(.+)$/gm, (_, h) => `<b>${h.trim()}</b>`); // sarlavhalar
-    t = t.replace(/^\s*&gt;\s?/gm, '');                    // sitatalar
-    t = t.replace(/^(\s*)[*+-]\s+/gm, '$1• ');             // ro'yxat belgilari
-    t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');      // qalin
+    t = t.replace(/^\s*([-*_]\s?){3,}\s*$/gm, '');
+    t = t.replace(/^#{1,6}\s*(.+)$/gm, (_, h) => `<b>${h.trim()}</b>`);
+    t = t.replace(/^\s*&gt;\s?/gm, '');
+    t = t.replace(/^(\s*)[*+-]\s+/gm, '$1• ');
+    t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
     t = t.replace(/__([^_\n]+)__/g, '<b>$1</b>');
-    t = t.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>'); // kursiv
+    t = t.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>');
     t = t.replace(/(^|[\s(])_([^_\n]+)_/g, '$1<i>$2</i>');
 
     t = t.replace(/\u0000I(\d+)\u0000/g, (_, i) => `<code>${esc(inlines[+i])}</code>`);
@@ -138,8 +192,7 @@ async function sendFormatted(ctx, loadingMsgId, raw) {
                 await ctx.reply(html, { parse_mode: 'HTML' });
             }
         } catch (e) {
-            // HTML buzilgan bo'lsa — oddiy matn bilan yuboramiz
-            console.warn('HTML parse xato, plain rejimga o\'tildi:', e.message);
+            console.warn("HTML parse xato, plain rejimga o'tildi:", e.message);
             if (i === 0) {
                 await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, plain);
             } else {
@@ -157,19 +210,24 @@ async function fileToPart(ctx, fileId, mimeType) {
 }
 
 // ==================== KOMANDALAR ====================
-bot.start((ctx) => {
-    chatHistory.set(ctx.chat.id, []);
-    ctx.reply("🤖 Salom Humoyun! Men XumoAI — sizning universal yordamchingizman.\n\n✅ Xotira faol\n✅ Rasm, ovoz va hujjat tahlili\n\n/clear — xotirani tozalash\n/status — holat");
+bot.start(async (ctx) => {
+    await clearHistory(ctx.chat.id);
+    ctx.reply("🤖 Salom Humoyun! Men XumoAI — sizning universal yordamchingizman.\n\n✅ Doimiy xotira\n✅ Rasm, ovoz va hujjat tahlili\n\n/clear — xotirani tozalash\n/status — holat");
 });
 
-bot.command('clear', (ctx) => {
-    chatHistory.set(ctx.chat.id, []);
+bot.command('clear', async (ctx) => {
+    await clearHistory(ctx.chat.id);
     ctx.reply('🧹 Xotira tozalandi, Humoyun.');
 });
 
-bot.command('status', (ctx) => {
-    const len = (chatHistory.get(ctx.chat.id) || []).length;
-    ctx.reply(`⚙️ Model: ${MODEL}\n🧠 Xotirada: ${len / 2} ta savol-javob\n🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}`);
+bot.command('status', async (ctx) => {
+    const h = await loadHistory(ctx.chat.id);
+    ctx.reply(
+        `⚙️ Model: ${MODEL}\n` +
+        `🧠 Xotirada: ${h.length / 2} ta savol-javob\n` +
+        `💾 Doimiy xotira: ${supabase ? 'yoqilgan (Supabase)' : "o'chirilgan (RAM)"}\n` +
+        `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}`
+    );
 });
 
 // ==================== ASOSIY ISHLOVCHI ====================
@@ -180,7 +238,7 @@ bot.on('message', async (ctx) => {
     const loadingMsg = await ctx.reply('⏳ Tahlil qilyapman...');
 
     try {
-        const history = chatHistory.get(ctx.chat.id) || [];
+        const history = await loadHistory(ctx.chat.id);
         const text = m.text || m.caption || "Ushbu faylni batafsil tahlil qilib, xulosa va g'oyalaringni yozib ber.";
         const parts = [{ text }];
         let mediaNote = '';
@@ -232,9 +290,9 @@ bot.on('message', async (ctx) => {
             ...history,
             { role: 'user', parts: [{ text: text + mediaNote }] },
             { role: 'model', parts: [{ text: replyText }] },
-        ];
-        chatHistory.set(ctx.chat.id, newHistory.slice(-MAX_HISTORY));
+        ].slice(-MAX_HISTORY);
 
+        await saveHistory(ctx.chat.id, newHistory);
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
 
     } catch (error) {
