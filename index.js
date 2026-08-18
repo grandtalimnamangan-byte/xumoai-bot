@@ -622,7 +622,25 @@ bot.on('message', async (ctx) => {
 });
 
 // ==================== ISHGA TUSHIRISH ====================
-bot.launch().then(() => console.log('🤖 XumoAI Bot ishga tushdi!'));
+async function startBot(attempt = 1) {
+    try {
+        console.log(`🤖 XumoAI Bot ishga tushyapti (urinish ${attempt})...`);
+        await bot.launch({ dropPendingUpdates: true });
+    } catch (e) {
+        console.error(`Ishga tushirish xatosi (${attempt}):`, e.message);
+        if (attempt < 12) {
+            const delay = Math.min(attempt * 5000, 30000);
+            console.log(`${delay / 1000}s dan keyin qayta urinaman...`);
+            setTimeout(() => startBot(attempt + 1), delay);
+        } else {
+            console.error("Bot ishga tushmadi — boshqa nusxa ishlayotgan bo'lishi mumkin.");
+        }
+    }
+}
+startBot();
+
+process.on('unhandledRejection', (r) => console.error('Ushlanmagan rad etish:', r?.message || r));
+process.on('uncaughtException', (e) => console.error('Ushlanmagan xato:', e?.message || e));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
