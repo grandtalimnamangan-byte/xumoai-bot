@@ -11,6 +11,7 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const IMAGE_MODEL = process.env.IMAGE_MODEL || 'gemini-3.1-flash-image';
 const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== 'false';
+const SHOW_CODE = process.env.SHOW_CODE === 'true'; // hisob kodini ko'rsatish
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 if (!token || !geminiApiKey || !myTelegramId) {
@@ -28,10 +29,16 @@ const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_KEY)
 
 console.log(supabase ? '💾 Supabase ulandi — xotira doimiy.' : "⚠️ Supabase yo'q — xotira faqat RAM da.");
 
+// ==================== UMUMIY FORMATLASH QOIDASI ====================
+const FORMAT_RULES = `FORMATLASH (Telegram uchun muhim):
+- Faqat **qalin**, *kursiv*, \`kod\` va "-" bilan boshlanadigan oddiy ro'yxatlardan foydalan.
+- ### sarlavhalar, --- ajratuvchi chiziqlar, jadvallar va > sitatalardan FOYDALANMA.
+- Bo'limlarni ajratish kerak bo'lsa — emoji + **qalin sarlavha** ishlat.`;
+
 // ==================== AI SHAXSIYATI ====================
 const systemInstruction = `Sen Humoyunning shaxsiy AI agenti va bosh yordamchisisan. Isming — XumoAI. Unga har doim "Humoyun" deb murojaat qil.
 
-QAMROV: Sen universal yordamchisan. Har qanday sohadagi savolga javob berasan — dunyoviy bilimlar, din, matematika va hisob-kitob, tibbiyot, texnologiya, tarix, huquq, biznes.
+QAMROV: Sen universal yordamchisan. Har qanday sohadagi savolga javob berasan — dunyoviy bilimlar, din, matematika, savdo va moliya, tibbiyot, texnologiya, tarix, huquq.
 
 IXTISOSLASHGAN SOHALARING:
 1. Ta'lim tashkilotlari uchun marketing strategiyalari, SMM rejalari, kopirayterlik, Instagram/Telegram postlar.
@@ -39,19 +46,40 @@ IXTISOSLASHGAN SOHALARING:
 3. Prompt muhandisligi (Midjourney, DALL-E, Google Veo, Imagen).
 4. Ingliz va Arab tillari — tarjima, grammatika, o'quv materiallari tahriri.
 5. Vektor grafikasi va web-layoutlar (HTML/Tailwind).
+6. SAVDO VA MOLIYA — quyida batafsil.
+7. HARID EKSPERTIZASI — quyida batafsil.
+
+SAVDO VA MOLIYA QOIDALARI:
+- Ustama (markup) va marja (margin) — ikki xil narsa. Ularni HECH QACHON aralashtirma va har safar qaysi biri hisoblanayotganini aniq ayt.
+  Ustama = (sotuv - tannarx) / tannarx. Marja = (sotuv - tannarx) / sotuv.
+- Tannarxga faqat tovar narxi emas, yashirin xarajatlar ham kiradi: yetkazib berish, bojxona, yo'qotish/nuqson, saqlash, to'lov tizimi komissiyasi, qadoqlash, reklama. Foydani hisoblashda ularni so'rab ol yoki taxminini alohida belgilab qo'y.
+- Aylanma tezligi foyda foizidan muhimroq bo'lishi mumkin — 10% foyda bilan oyiga 5 marta aylangan tovar, 40% foyda bilan yiliga 1 marta aylangandan yaxshiroq. Buni hisobga ol.
+- Chegirma foizi foydani foiz bilan emas, ancha keskin kamaytiradi. 20% chegirma 30% marjani 10% ga tushiradi. Har chegirma taklifida shuni ko'rsat.
+- "Bo'lib to'lash" va "0% kredit" da yashirin ustama bo'ladi — umumiy to'langan summani naqd narx bilan solishtir.
+- O'zbekistonda QQS odatda 12% — lekin stavka o'zgargan bo'lishi mumkin, aniq raqamni tasdiqlashni ayt.
+- Investitsiya yoki foyda kafolatini HECH QACHON berma. Faraz va risklarni ochiq yoz.
+
+HARID EKSPERTIZASI (tovar sotib olayotganda):
+Tovarni baholaganda quyidagi tartibda yon bos:
+- Asosiy vazifasi nima va qaysi 3 ta parametr shu vazifaga haqiqatan ta'sir qiladi.
+- Sifat belgilari: material, ishlov sifati, kafolat muddati va kafolat kim tomonidan berilishi, xizmat ko'rsatish markazi bor-yo'qligi, ehtiyot qism topiladimi.
+- Yomon tovar belgilari: haddan tashqari arzon narx, noaniq ishlab chiqaruvchi, sertifikat yo'qligi, faqat tashqi ko'rinishga urg'u, sharhlar bir xil uslubda yozilgani, model raqami internetdan topilmasligi.
+- Ortiqcha to'lov: brend uchun, keraksiz funksiyalar uchun, "premium" qadoq uchun.
+- Umumiy egalik narxi: sarf materiallari, ta'mir, elektr, o'rnatish.
+- Aniq tekshirish ro'yxati — do'konda yoki yetkazib berishda nimani o'z ko'zi bilan ko'rish kerak.
+- Qachon SOTIB OLMASLIK kerakligini ham ochiq ayt. Har savolga "ha, oling" deb javob berma.
+Narx yoki model haqida aniq ma'lumot kerak bo'lsa — Google qidiruvidan foydalan va manba ko'rsat.
 
 JAVOB BERISH QOIDALARI:
 - Hech qachon ma'lumot to'qib chiqarma. Aniq bilmasang — "aniq bilmayman" deb ayt.
-- Savolni javobsiz qoldirma: nima ma'lum ekanini ayt, keyin aniq takliflar ber — qayerdan qidirish, kimga murojaat qilish, savolni qanday aniqlashtirish kerak.
-- Hisob-kitobni bosqichma-bosqich yech va natijani tekshirib chiq.
-- TIBBIYOT: umumiy ma'lumot ber, lekin tashxis qo'yma va dori tayinlama. Shifokorga murojaat qilishni tavsiya qil. Xavfli belgilar bo'lsa — darhol tez yordamga murojaat qilishni ayt.
-- DIN: ishonchli manbalarga tayanib ma'lumot ber, turli mazhab va qarashlar bo'lsa ularni ko'rsat. Fatvo talab qiladigan shaxsiy masalalarda — mahalliy olim yoki imomga murojaat qilishni tavsiya qil.
+- Savolni javobsiz qoldirma: nima ma'lum ekanini ayt, keyin aniq takliflar ber.
+- Hisob-kitobni bosqichma-bosqich yech, formulani ko'rsat va natijani tekshirib chiq.
+- Muhim raqam taxminga asoslangan bo'lsa — "taxmin" deb belgilab qo'y.
+- TIBBIYOT: umumiy ma'lumot ber, tashxis qo'yma va dori tayinlama. Shifokorga murojaat qilishni tavsiya qil.
+- DIN: ishonchli manbalarga tayan, turli qarashlarni ko'rsat. Fatvo masalalarida olim yoki imomga murojaat qilishni ayt.
 - Humoyun xato qilsa yoki g'oyasida kamchilik ko'rsang — ochiq ayt, shunchaki maqtama.
 
-FORMATLASH (Telegram uchun muhim):
-- Faqat **qalin**, *kursiv*, \`kod\` va "-" bilan boshlanadigan oddiy ro'yxatlardan foydalan.
-- ### sarlavhalar, --- ajratuvchi chiziqlar, jadvallar va > sitatalardan FOYDALANMA.
-- Bo'limlarni ajratish kerak bo'lsa — emoji + **qalin sarlavha** ishlat.
+${FORMAT_RULES}
 
 USLUB: professional, ijodiy, aniq va qisqa. O'zbek tilida (zarurat bo'lsa ingliz/arab tillarida). O'rinli emojilardan foydalan.`;
 
@@ -60,6 +88,35 @@ if (ENABLE_SEARCH) modelConfig.tools = [{ googleSearch: {} }];
 
 const model = genAI.getGenerativeModel(modelConfig);
 const modelNoTools = genAI.getGenerativeModel({ model: MODEL, systemInstruction });
+
+// ==================== ANALITIK MODEL (aniq hisob-kitob) ====================
+// codeExecution — model taxmin qilmaydi, haqiqiy kod ishlatib hisoblaydi
+const analystInstruction = `Sen Humoyunning moliya va savdo bo'yicha analitigisan. Unga "Humoyun" deb murojaat qil.
+
+MUHIM: har qanday arifmetikani BOSHINGDA hisoblama — har doim kod ishlatib hisobla. Bu majburiy.
+
+Javob tuzilishi:
+1. Qanday tushunganingni bir jumlada ayt (kirish ma'lumotlari va farazlar).
+2. Kod bilan hisobla.
+3. Natijani aniq raqamlarda yoz — birligi bilan (so'm, dona, %, oy).
+4. Xulosa va 1-2 ta amaliy tavsiya.
+
+QOIDALAR:
+- Ustama (markup) va marja (margin) ni aralashtirma, qaysi biri ekanini aniq yoz.
+- Ma'lumot yetishmasa — taxmin qil, LEKIN taxminni ochiq "faraz" deb belgila va natija unga qanchalik bog'liqligini ayt.
+- Bir nechta stsenariy (yomon/o'rtacha/yaxshi) foydali bo'lsa, uchalasini ham hisobla.
+- Katta raqamlarni o'qishli yoz: 12 500 000 so'm.
+- Investitsiya yoki foyda kafolatini berma.
+
+${FORMAT_RULES}
+
+O'zbek tilida javob ber.`;
+
+const analystModel = genAI.getGenerativeModel({
+    model: MODEL,
+    systemInstruction: analystInstruction,
+    tools: [{ codeExecution: {} }],
+});
 
 const promptEnhancer = genAI.getGenerativeModel({
     model: MODEL,
@@ -195,10 +252,20 @@ async function fileToPart(ctx, fileId, mimeType) {
     return { inlineData: { data: Buffer.from(buffer).toString('base64'), mimeType } };
 }
 
+// codeExecution javobidan matn, kod va natijalarni yig'ish
+function extractParts(response) {
+    const parts = response?.candidates?.[0]?.content?.parts || [];
+    let out = '';
+    for (const p of parts) {
+        if (p.text) out += p.text;
+        else if (p.executableCode && SHOW_CODE) out += `\n\`\`\`\n${p.executableCode.code}\n\`\`\`\n`;
+        else if (p.codeExecutionResult && SHOW_CODE) out += `\n\`\`\`\n${p.codeExecutionResult.output}\n\`\`\`\n`;
+    }
+    return out.trim();
+}
+
 // ==================== RASM GENERATSIYA ====================
-// Gemini-native rasm modellari (gemini-*-image) :generateContent orqali ishlaydi.
-// Aspect ratio uzatish usuli model versiyasiga qarab farq qiladi — 3 xil urinish qilamiz.
-async function generateImages(prompt, aspectRatio, refImagePart = null) {
+async function generateImages(prompt, aspectRatio) {
     const isImagen = /imagen/i.test(IMAGE_MODEL);
     const url = `${API_BASE}/models/${IMAGE_MODEL}:${isImagen ? 'predict' : 'generateContent'}?key=${geminiApiKey}`;
 
@@ -215,14 +282,8 @@ async function generateImages(prompt, aspectRatio, refImagePart = null) {
         return preds.map((p) => Buffer.from(p.bytesBase64Encoded, 'base64'));
     }
 
-    const parts = [{ text: prompt }];
-    if (refImagePart) parts.push(refImagePart);
-
-    const contents = [{ role: 'user', parts }];
-    const contentsWithHint = [{
-        role: 'user',
-        parts: [{ text: `${prompt}\n\nAspect ratio: ${aspectRatio}` }, ...(refImagePart ? [refImagePart] : [])],
-    }];
+    const contents = [{ role: 'user', parts: [{ text: prompt }] }];
+    const contentsWithHint = [{ role: 'user', parts: [{ text: `${prompt}\n\nAspect ratio: ${aspectRatio}` }] }];
 
     const attempts = [
         { contents, generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio } } },
@@ -261,8 +322,12 @@ bot.start(async (ctx) => {
     await clearHistory(ctx.chat.id);
     ctx.reply(
         "🤖 Salom Humoyun! Men XumoAI — sizning universal yordamchingizman.\n\n" +
-        "✅ Doimiy xotira\n✅ Rasm, ovoz va hujjat tahlili\n✅ Rasm generatsiya\n\n" +
-        "/img <tavsif> — rasm chizish\n/clear — xotirani tozalash\n/status — holat\n/models — mavjud modellar"
+        "🧮 /hisob — aniq moliyaviy hisob-kitob\n" +
+        "🛒 /harid — tovar tahlili va xarid maslahati\n" +
+        "🎨 /img — rasm chizish\n" +
+        "🧹 /clear — xotirani tozalash\n" +
+        "⚙️ /status — holat\n" +
+        "📋 /models — mavjud modellar"
     );
 });
 
@@ -278,7 +343,8 @@ bot.command('status', async (ctx) => {
         `🎨 Rasm modeli: ${IMAGE_MODEL}\n` +
         `🧠 Xotirada: ${h.length / 2} ta savol-javob\n` +
         `💾 Doimiy xotira: ${supabase ? 'yoqilgan (Supabase)' : "o'chirilgan (RAM)"}\n` +
-        `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}`
+        `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}\n` +
+        `🧮 Hisob kodi ko'rinishi: ${SHOW_CODE ? 'yoqilgan' : "o'chirilgan"}`
     );
 });
 
@@ -305,7 +371,113 @@ bot.command('models', async (ctx) => {
     }
 });
 
-// /img [nisbat] [!] <tavsif>
+// ==================== /hisob — aniq hisob-kitob ====================
+bot.command('hisob', async (ctx) => {
+    const input = ctx.message.text.replace(/^\/hisob(@\S+)?\s*/i, '').trim();
+
+    if (!input) {
+        return ctx.reply(
+            "🧮 Foydalanish: /hisob <masala>\n\n" +
+            "Misollar:\n" +
+            "- /hisob 45000 so'mga oldim, 68000 ga sotyapman. Marja va ustama qancha?\n" +
+            "- /hisob 200 dona tovar, dona 12$, yetkazish 300$, bojxona 15%. Tannarx qancha?\n" +
+            "- /hisob 30% marjam bor, 20% chegirma qilsam foyda nima bo'ladi?\n" +
+            "- /hisob 12 mln so'm, 12 oyga 0% bo'lib to'lash, naqd narxi 9.8 mln. Foydalimi?"
+        );
+    }
+
+    const loadingMsg = await ctx.reply('🧮 Hisoblanyapti...');
+
+    try {
+        const history = await loadHistory(ctx.chat.id);
+        const result = await analystModel.generateContent({
+            contents: [...history, { role: 'user', parts: [{ text: input }] }],
+        });
+
+        const replyText = extractParts(result.response) || "Hisob natijasi bo'sh qaytdi.";
+
+        const newHistory = [
+            ...history,
+            { role: 'user', parts: [{ text: `[hisob] ${input}` }] },
+            { role: 'model', parts: [{ text: replyText }] },
+        ].slice(-MAX_HISTORY);
+
+        await saveHistory(ctx.chat.id, newHistory);
+        await sendFormatted(ctx, loadingMsg.message_id, replyText);
+
+    } catch (error) {
+        console.error('Hisob xatosi:', error);
+        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+            `❌ Hisoblab bo'lmadi: ${(error.message || "noma'lum").slice(0, 300)}`);
+    }
+});
+
+// ==================== /harid — tovar ekspertizasi ====================
+bot.command('harid', async (ctx) => {
+    const input = ctx.message.text.replace(/^\/harid(@\S+)?\s*/i, '').trim();
+
+    if (!input) {
+        return ctx.reply(
+            "🛒 Foydalanish: /harid <tovar yoki savol>\n\n" +
+            "Misollar:\n" +
+            "- /harid o'quv markazi uchun proyektor, byudjet 5 mln so'm\n" +
+            "- /harid montaj uchun noutbuk, 12 mln gacha\n" +
+            "- /harid bu changyutgichni olsam bo'ladimi? [model nomi]\n\n" +
+            "Byudjet va foydalanish maqsadini yozsangiz, javob aniqroq bo'ladi."
+        );
+    }
+
+    const loadingMsg = await ctx.reply('🛒 Tahlil qilyapman...');
+
+    try {
+        const history = await loadHistory(ctx.chat.id);
+
+        const framed = `Quyidagi xarid bo'yicha to'liq ekspertiza qil.
+
+So'rov: ${input}
+
+Javobda albatta shu bo'limlar bo'lsin:
+1. Bu tovarda haqiqatan muhim 3 ta parametr (qolganlari marketing shovqini).
+2. Sifatli namunaning belgilari.
+3. Yomon/sifatsiz namunaning belgilari — nimadan qochish kerak.
+4. Real narx oralig'i (bilmasang, qidiruvdan foydalanib manba ko'rsat; topilmasa "aniq bilmayman" deb ayt).
+5. Umumiy egalik narxi — keyinchalik qanday xarajat chiqadi.
+6. Sotib olishdan oldingi tekshirish ro'yxati (do'konda nimani o'z ko'zi bilan ko'rish kerak).
+7. Qachon BU TOVARNI OLMASLIK kerak — muqobil variant bilan.`;
+
+        let replyText;
+        try {
+            const result = await model.generateContent({
+                contents: [...history, { role: 'user', parts: [{ text: framed }] }],
+            });
+            replyText = result.response.text();
+        } catch (e) {
+            console.warn("Tools bilan xato, zaxiraga o'tildi:", e.message);
+            const result = await modelNoTools.generateContent({
+                contents: [...history, { role: 'user', parts: [{ text: framed }] }],
+            });
+            replyText = result.response.text();
+        }
+
+        if (!replyText) replyText = "Javob bo'sh qaytdi. So'rovni aniqroq yozing.";
+
+        const newHistory = [
+            ...history,
+            { role: 'user', parts: [{ text: `[harid] ${input}` }] },
+            { role: 'model', parts: [{ text: replyText }] },
+        ].slice(-MAX_HISTORY);
+
+        await saveHistory(ctx.chat.id, newHistory);
+        await sendFormatted(ctx, loadingMsg.message_id, replyText);
+
+    } catch (error) {
+        console.error('Harid tahlili xatosi:', error);
+        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+            `❌ Xatolik: ${(error.message || "noma'lum").slice(0, 300)}`);
+    }
+});
+
+// ==================== /img ====================
 bot.command('img', async (ctx) => {
     let input = ctx.message.text.replace(/^\/img(@\S+)?\s*/i, '').trim();
 
@@ -358,6 +530,11 @@ bot.command('img', async (ctx) => {
     }
 });
 
+// ==================== HISOB-KITOBNI AVTOMATIK ANIQLASH ====================
+// Komandasiz yozilgan hisob-kitob savollarini ham analitik modelga yo'naltiramiz
+const CALC_HINT = /(hisobla|hisob-kitob|foiz|foyda|zarar|chegirma|marja|ustama|tannarx|qqs|nds|kredit|bo['’]?lib to['’]?lash|oylik to['’]?lov|jami qancha|qancha bo['’]?ladi|necha foiz|rentabellik|aylanma)/i;
+const hasNumber = (s) => /\d/.test(s);
+
 // ==================== ASOSIY ISHLOVCHI ====================
 bot.on('message', async (ctx) => {
     const m = ctx.message;
@@ -399,15 +576,31 @@ bot.on('message', async (ctx) => {
         }
 
         const request = { contents: [...history, { role: 'user', parts }] };
+        const isCalc = !m.photo && !m.voice && !m.audio && !m.document
+            && hasNumber(text) && CALC_HINT.test(text);
 
         let replyText;
-        try {
-            const result = await model.generateContent(request);
-            replyText = result.response.text();
-        } catch (searchErr) {
-            console.warn("Tools bilan xato, zaxiraga o'tildi:", searchErr.message);
-            const result = await modelNoTools.generateContent(request);
-            replyText = result.response.text();
+
+        if (isCalc) {
+            // Aniq hisob talab qiladigan savol — analitik modelga
+            try {
+                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '🧮 Hisoblanyapti...');
+                const result = await analystModel.generateContent(request);
+                replyText = extractParts(result.response);
+            } catch (e) {
+                console.warn('Analitik model xatosi, asosiy modelga qaytildi:', e.message);
+            }
+        }
+
+        if (!replyText) {
+            try {
+                const result = await model.generateContent(request);
+                replyText = result.response.text();
+            } catch (searchErr) {
+                console.warn("Tools bilan xato, zaxiraga o'tildi:", searchErr.message);
+                const result = await modelNoTools.generateContent(request);
+                replyText = result.response.text();
+            }
         }
 
         if (!replyText) replyText = "Javob bo'sh qaytdi. Savolni boshqacha shaklda bering.";
