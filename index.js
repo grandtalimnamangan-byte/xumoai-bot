@@ -9,7 +9,9 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const myTelegramId = parseInt(process.env.MY_TELEGRAM_ID, 10);
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const IMAGE_MODEL = process.env.IMAGE_MODEL || 'imagen-4.0-generate-001';
 const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== 'false';
+const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 if (!token || !geminiApiKey || !myTelegramId) {
     console.error('XATO: TELEGRAM_BOT_TOKEN / GEMINI_API_KEY / MY_TELEGRAM_ID topilmadi!');
@@ -19,13 +21,12 @@ if (!token || !geminiApiKey || !myTelegramId) {
 const bot = new Telegraf(token);
 const genAI = new GoogleGenerativeAI(geminiApiKey);
 
-// ==================== SUPABASE (doimiy xotira) ====================
-// SUPABASE_URL / SUPABASE_KEY bo'lmasa — bot faqat RAM xotirasi bilan ishlaydi
+// ==================== SUPABASE ====================
 const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_KEY)
     ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, { auth: { persistSession: false } })
     : null;
 
-console.log(supabase ? '💾 Supabase ulandi — xotira doimiy.' : '⚠️ Supabase yo\'q — xotira faqat RAM da.');
+console.log(supabase ? '💾 Supabase ulandi — xotira doimiy.' : "⚠️ Supabase yo'q — xotira faqat RAM da.");
 
 // ==================== AI SHAXSIYATI ====================
 const systemInstruction = `Sen Humoyunning shaxsiy AI agenti va bosh yordamchisisan. Isming — XumoAI. Unga har doim "Humoyun" deb murojaat qil.
@@ -60,29 +61,32 @@ if (ENABLE_SEARCH) modelConfig.tools = [{ googleSearch: {} }];
 const model = genAI.getGenerativeModel(modelConfig);
 const modelNoTools = genAI.getGenerativeModel({ model: MODEL, systemInstruction });
 
+// Prompt kuchaytirish uchun alohida, sof model (persona aralashmasin)
+const promptEnhancer = genAI.getGenerativeModel({
+    model: MODEL,
+    systemInstruction: `Sen rasm generatsiya promptlari bo'yicha mutaxassissan. Foydalanuvchi qisqa g'oya beradi — sen uni professional, batafsil INGLIZ TILIDAGI promptga aylantirasan.
+Promptga kadr turi, yorug'lik, kompozitsiya, uslub, ranglar va sifat tavsiflarini qo'sh.
+FAQAT promptning o'zini qaytar. Izoh, sarlavha, tirnoq yoki qo'shimcha matn YOZMA.`,
+});
+
 // ==================== XOTIRA QATLAMI ====================
-const cache = new Map();       // RAM kesh — DB ga har safar murojaat qilmaslik uchun
-const MAX_HISTORY = 20;        // 10 juft savol-javob
+const cache = new Map();
+const MAX_HISTORY = 20;
 
 async function loadHistory(chatId) {
     if (cache.has(chatId)) return cache.get(chatId);
-
     if (supabase) {
         try {
             const { data, error } = await supabase
-                .from('chat_memory')
-                .select('history')
-                .eq('chat_id', chatId)
-                .maybeSingle();
+                .from('chat_memory').select('history').eq('chat_id', chatId).maybeSingle();
             if (error) throw error;
             const history = data?.history || [];
             cache.set(chatId, history);
             return history;
         } catch (e) {
-            console.error('Supabase o\'qish xatosi:', e.message);
+            console.error("Supabase o'qish xatosi:", e.message);
         }
     }
-
     cache.set(chatId, []);
     return [];
 }
@@ -91,8 +95,7 @@ async function saveHistory(chatId, history) {
     cache.set(chatId, history);
     if (!supabase) return;
     try {
-        const { error } = await supabase
-            .from('chat_memory')
+        const { error } = await supabase.from('chat_memory')
             .upsert({ chat_id: chatId, history, updated_at: new Date().toISOString() });
         if (error) throw error;
     } catch (e) {
@@ -103,14 +106,11 @@ async function saveHistory(chatId, history) {
 async function clearHistory(chatId) {
     cache.set(chatId, []);
     if (!supabase) return;
-    try {
-        await supabase.from('chat_memory').delete().eq('chat_id', chatId);
-    } catch (e) {
-        console.error('Supabase o\'chirish xatosi:', e.message);
-    }
+    try { await supabase.from('chat_memory').delete().eq('chat_id', chatId); }
+    catch (e) { console.error("Supabase o'chirish xatosi:", e.message); }
 }
 
-// ==================== RENDER SERVER + UYQUGA QARSHI ====================
+// ==================== RENDER SERVER ====================
 const port = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -130,21 +130,17 @@ bot.use((ctx, next) => {
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function mdToHtml(md) {
-    const blocks = [];
-    const inlines = [];
+    const blocks = [], inlines = [];
     let t = md;
 
     t = t.replace(/```[a-zA-Z0-9]*\n?([\s\S]*?)```/g, (_, code) => {
-        blocks.push(code);
-        return `\u0000B${blocks.length - 1}\u0000`;
+        blocks.push(code); return `\u0000B${blocks.length - 1}\u0000`;
     });
     t = t.replace(/`([^`\n]+)`/g, (_, code) => {
-        inlines.push(code);
-        return `\u0000I${inlines.length - 1}\u0000`;
+        inlines.push(code); return `\u0000I${inlines.length - 1}\u0000`;
     });
 
     t = esc(t);
-
     t = t.replace(/^\s*([-*_]\s?){3,}\s*$/gm, '');
     t = t.replace(/^#{1,6}\s*(.+)$/gm, (_, h) => `<b>${h.trim()}</b>`);
     t = t.replace(/^\s*&gt;\s?/gm, '');
@@ -153,7 +149,6 @@ function mdToHtml(md) {
     t = t.replace(/__([^_\n]+)__/g, '<b>$1</b>');
     t = t.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>');
     t = t.replace(/(^|[\s(])_([^_\n]+)_/g, '$1<i>$2</i>');
-
     t = t.replace(/\u0000I(\d+)\u0000/g, (_, i) => `<code>${esc(inlines[+i])}</code>`);
     t = t.replace(/\u0000B(\d+)\u0000/g, (_, i) => `<pre><code>${esc(blocks[+i])}</code></pre>`);
 
@@ -168,8 +163,7 @@ function splitText(text, limit = 3800) {
             if (cur) { out.push(cur); cur = ''; }
             for (let i = 0; i < line.length; i += limit) out.push(line.slice(i, i + limit));
         } else if ((cur ? cur.length + 1 : 0) + line.length > limit) {
-            out.push(cur);
-            cur = line;
+            out.push(cur); cur = line;
         } else {
             cur = cur ? cur + '\n' + line : line;
         }
@@ -181,23 +175,16 @@ function splitText(text, limit = 3800) {
 async function sendFormatted(ctx, loadingMsgId, raw) {
     const htmlChunks = splitText(mdToHtml(raw));
     const plainChunks = splitText(raw);
-
     for (let i = 0; i < htmlChunks.length; i++) {
         const html = htmlChunks[i];
         const plain = plainChunks[i] || html.replace(/<[^>]+>/g, '');
         try {
-            if (i === 0) {
-                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, html, { parse_mode: 'HTML' });
-            } else {
-                await ctx.reply(html, { parse_mode: 'HTML' });
-            }
+            if (i === 0) await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, html, { parse_mode: 'HTML' });
+            else await ctx.reply(html, { parse_mode: 'HTML' });
         } catch (e) {
             console.warn("HTML parse xato, plain rejimga o'tildi:", e.message);
-            if (i === 0) {
-                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, plain);
-            } else {
-                await ctx.reply(plain);
-            }
+            if (i === 0) await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, plain);
+            else await ctx.reply(plain);
         }
     }
 }
@@ -209,10 +196,51 @@ async function fileToPart(ctx, fileId, mimeType) {
     return { inlineData: { data: Buffer.from(buffer).toString('base64'), mimeType } };
 }
 
+// ==================== RASM GENERATSIYA ====================
+// Ikki xil API: Imagen -> :predict, Gemini rasm modellari -> :generateContent
+async function generateImages(prompt, aspectRatio, count) {
+    const isImagen = /imagen/i.test(IMAGE_MODEL);
+
+    if (isImagen) {
+        const res = await fetch(`${API_BASE}/models/${IMAGE_MODEL}:predict?key=${geminiApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                instances: [{ prompt }],
+                parameters: { sampleCount: count, aspectRatio },
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+        const preds = data.predictions || [];
+        if (!preds.length) throw new Error('Model rasm qaytarmadi (ehtimol prompt rad etilgan).');
+        return preds.map((p) => Buffer.from(p.bytesBase64Encoded, 'base64'));
+    }
+
+    const res = await fetch(`${API_BASE}/models/${IMAGE_MODEL}:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const images = parts.filter((p) => p.inlineData).map((p) => Buffer.from(p.inlineData.data, 'base64'));
+    if (!images.length) throw new Error('Model rasm qaytarmadi (ehtimol prompt rad etilgan).');
+    return images;
+}
+
 // ==================== KOMANDALAR ====================
 bot.start(async (ctx) => {
     await clearHistory(ctx.chat.id);
-    ctx.reply("🤖 Salom Humoyun! Men XumoAI — sizning universal yordamchingizman.\n\n✅ Doimiy xotira\n✅ Rasm, ovoz va hujjat tahlili\n\n/clear — xotirani tozalash\n/status — holat");
+    ctx.reply(
+        "🤖 Salom Humoyun! Men XumoAI — sizning universal yordamchingizman.\n\n" +
+        "✅ Doimiy xotira\n✅ Rasm, ovoz va hujjat tahlili\n✅ Rasm generatsiya\n\n" +
+        "/img <tavsif> — rasm chizish\n/clear — xotirani tozalash\n/status — holat\n/models — mavjud modellar"
+    );
 });
 
 bot.command('clear', async (ctx) => {
@@ -223,17 +251,99 @@ bot.command('clear', async (ctx) => {
 bot.command('status', async (ctx) => {
     const h = await loadHistory(ctx.chat.id);
     ctx.reply(
-        `⚙️ Model: ${MODEL}\n` +
+        `⚙️ Matn modeli: ${MODEL}\n` +
+        `🎨 Rasm modeli: ${IMAGE_MODEL}\n` +
         `🧠 Xotirada: ${h.length / 2} ta savol-javob\n` +
         `💾 Doimiy xotira: ${supabase ? 'yoqilgan (Supabase)' : "o'chirilgan (RAM)"}\n` +
         `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}`
     );
 });
 
+// Diagnostika — kalitingizda qaysi modellar borligini ko'rsatadi
+bot.command('models', async (ctx) => {
+    const msg = await ctx.reply('⏳ Modellar ro\'yxati olinyapti...');
+    try {
+        const res = await fetch(`${API_BASE}/models?key=${geminiApiKey}&pageSize=200`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+
+        const names = (data.models || []).map((m) => m.name.replace('models/', ''));
+        const images = names.filter((n) => /imagen|image|veo/i.test(n));
+        const texts = names.filter((n) => !/imagen|image|veo|embedding|aqa/i.test(n));
+
+        const text =
+            `🎨 **Rasm/video modellari (${images.length}):**\n` +
+            (images.length ? images.map((n) => `- ${n}`).join('\n') : '- topilmadi') +
+            `\n\n💬 **Matn modellari (${texts.length}):**\n` +
+            texts.map((n) => `- ${n}`).join('\n');
+
+        await sendFormatted(ctx, msg.message_id, text);
+    } catch (e) {
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+    }
+});
+
+// /img [nisbat] [!] <tavsif>
+// Misollar:  /img 9:16 tog' cho'qqisidagi quyosh chiqishi
+//            /img !raw english prompt as is
+bot.command('img', async (ctx) => {
+    let input = ctx.message.text.replace(/^\/img(@\S+)?\s*/i, '').trim();
+
+    if (!input) {
+        return ctx.reply(
+            "🎨 Foydalanish: /img <tavsif>\n\n" +
+            "Nisbat: /img 9:16 tog'da quyosh chiqishi\n" +
+            "Qo'llab-quvvatlanadi: 1:1, 3:4, 4:3, 9:16, 16:9\n" +
+            "Promptni o'zgartirmasdan yuborish: /img ! your exact prompt"
+        );
+    }
+
+    let aspectRatio = '1:1';
+    const ratioMatch = input.match(/^(1:1|3:4|4:3|9:16|16:9)\s+/);
+    if (ratioMatch) {
+        aspectRatio = ratioMatch[1];
+        input = input.slice(ratioMatch[0].length).trim();
+    }
+
+    let raw = false;
+    if (input.startsWith('!')) { raw = true; input = input.slice(1).trim(); }
+
+    const loadingMsg = await ctx.reply('🎨 Prompt tayyorlanyapti...');
+
+    try {
+        let finalPrompt = input;
+
+        if (!raw) {
+            try {
+                const enhanced = await promptEnhancer.generateContent(input);
+                const t = enhanced.response.text().trim();
+                if (t) finalPrompt = t.replace(/^["'`]+|["'`]+$/g, '');
+            } catch (e) {
+                console.warn('Prompt kuchaytirish xatosi, asl matn ishlatildi:', e.message);
+            }
+        }
+
+        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '🖌 Rasm chizilyapti...');
+
+        const images = await generateImages(finalPrompt, aspectRatio, 1);
+        const caption = `🎨 <b>Prompt:</b>\n${esc(finalPrompt).slice(0, 900)}`;
+
+        await ctx.replyWithPhoto({ source: images[0] }, { caption, parse_mode: 'HTML' });
+        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => {});
+
+    } catch (error) {
+        console.error('Rasm generatsiya xatosi:', error);
+        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+            `❌ Rasm chizilmadi: ${(error.message || "noma'lum").slice(0, 400)}\n\n` +
+            `Model: ${IMAGE_MODEL}\n/models yuborib, mavjud modellarni tekshiring.`);
+    }
+});
+
 // ==================== ASOSIY ISHLOVCHI ====================
 bot.on('message', async (ctx) => {
     const m = ctx.message;
     if (!m.text && !m.photo && !m.voice && !m.audio && !m.document) return;
+    if (m.text && m.text.startsWith('/')) return; // komandalar yuqorida ishlangan
 
     const loadingMsg = await ctx.reply('⏳ Tahlil qilyapman...');
 
@@ -248,17 +358,14 @@ bot.on('message', async (ctx) => {
             parts.push(await fileToPart(ctx, photo.file_id, 'image/jpeg'));
             mediaNote = ' [rasm yuborilgan]';
         }
-
         if (m.voice) {
             parts.push(await fileToPart(ctx, m.voice.file_id, 'audio/ogg'));
             mediaNote = ' [ovozli xabar yuborilgan]';
         }
-
         if (m.audio) {
             parts.push(await fileToPart(ctx, m.audio.file_id, m.audio.mime_type || 'audio/mpeg'));
             mediaNote = ' [audio yuborilgan]';
         }
-
         if (m.document) {
             const mime = m.document.mime_type || '';
             const supported = ['application/pdf', 'text/plain', 'text/csv', 'text/markdown'];
