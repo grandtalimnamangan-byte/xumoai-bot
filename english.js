@@ -1,37 +1,50 @@
 // ============================================================
-//  XumoAI — INGLIZ TILI MODULI
-//  Mr. Grim (o'qituvchi) + Danny (suhbatdosh) + IELTS Examiner
-//  Interval takrori (Leitner), progress tracking, kunlik eslatma
+//  XumoAI — INGLIZ TILI MODULI v2
+//  Grammar · Vocabulary · Listening · Reading · Writing · Speaking
+//  Leitner interval takrori, haftalik aylanma, TTS audio
 // ============================================================
 
 const cron = require('node-cron');
 
-// Leitner qutilari: takrorlash oralig'i (kun)
+const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const BOX_INTERVALS = { 1: 1, 2: 3, 3: 7, 4: 16, 5: 35 };
 const MAX_BOX = 5;
 
-// 5 bosqichli dastur — dars mazmuni shu rejaga bo'ysunadi
 const SYLLABUS = `
 BOSQICH 1 (kun 1-60) — A1 → A2:
-to be, have got, artikllar, Present Simple (3-shaxs -s), Present Continuous, Past Simple (to'g'ri va noto'g'ri fe'llar), ko'plik, sanaladigan/sanalmaydigan, there is/are, so'roq va inkor. 800 ta asosiy so'z.
+to be, have got, artikllar, Present Simple (3-shaxs -s), Present Continuous, Past Simple (to'g'ri va noto'g'ri fe'llar), ko'plik, sanaladigan/sanalmaydigan, there is/are, so'roq va inkor, sifat tartibi. 800 ta asosiy so'z.
 
 BOSQICH 2 (kun 61-150) — A2 → B1:
-Present Perfect va Past Simple farqi, Future (will/going to/Present Continuous), modallar (can, must, should, have to), 1-2 shart gaplar, comparative/superlative, gerund va infinitiv. 2000 so'z. Kundalik mavzular.
+Present Perfect va Past Simple farqi, Future (will / going to / Present Continuous), modallar (can, must, should, have to), 1-2 shart gaplar, comparative/superlative, gerund va infinitiv. 2000 so'z.
 
 BOSQICH 3 (kun 151-270) — B1 → B2:
 Passive voice, relative clauses, 3-shart va mixed conditionals, reported speech, phrasal verbs, collocations, so'z yasalishi. 4000 so'z. IELTS format bilan tanishuv.
 
 BOSQICH 4 (kun 271-390) — B2, IELTS mashqi:
-Listening 4 qism, Reading strategiyalari (skimming, scanning, True/False/Not Given), Writing Task 1 va 2 tuzilishi, Speaking 3 qism. Akademik lug'at, linking words, paraphrasing.
+Listening 4 qism, Reading strategiyalari, Writing Task 1 va 2, Speaking 3 qism. Akademik lug'at, linking words, paraphrasing.
 
-BOSQICH 5 (kun 391-450) — Band 7 uchun sayqal:
-To'liq mock testlar, vaqt boshqaruvi, xatolar ustida ish, murakkab tuzilmalar, talaffuz va ravonlik.
+BOSQICH 5 (kun 391-450) — Band 7:
+To'liq mock testlar, vaqt boshqaruvi, xatolar ustida ish, murakkab tuzilmalar, ravonlik.
 `;
+
+// Haftalik aylanma — har kuni so'z + grammatika, ustiga kunlik fokus
+const WEEK_FOCUS = {
+    Mon: { name: 'Grammatika chuqur', cmd: null },
+    Tue: { name: 'Listening', cmd: '/listen' },
+    Wed: { name: 'Reading', cmd: '/read' },
+    Thu: { name: 'Writing / Essay', cmd: '/essay' },
+    Fri: { name: 'Speaking', cmd: '/speak' },
+    Sat: { name: 'Aralash takror + mini test', cmd: '/word' },
+    Sun: { name: 'Yengil takror + film', cmd: '/word' },
+};
 
 const FORMAT = `FORMATLASH: faqat **qalin**, *kursiv*, \`kod\` va "-" ro'yxatlardan foydalan. ### sarlavha, --- chiziq, jadval va > sitatadan FOYDALANMA. Bo'lim kerak bo'lsa emoji + **qalin sarlavha**.`;
 
 module.exports = function registerEnglish(bot, deps) {
-    const { genAI, MODEL, supabase, sendFormatted, esc, myTelegramId } = deps;
+    const { genAI, MODEL, supabase, sendFormatted, myTelegramId, geminiApiKey } = deps;
+    const TTS_MODEL = process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts';
+
+    const plain = () => genAI.getGenerativeModel({ model: MODEL });
 
     // ==================== PERSONALAR ====================
     const teacher = genAI.getGenerativeModel({
@@ -39,22 +52,25 @@ module.exports = function registerEnglish(bot, deps) {
         systemInstruction: `Sen Mr. Grim — Humoyunning jahldor, talabchan ingliz tili ustozisan.
 
 XARAKTER:
-- Qattiqqo'l, lekin adolatli. Bo'sh maqtov yo'q. "Yaxshi" degan so'zni faqat haqiqatan yaxshi bo'lganda ishlat.
-- XATO uchun HECH QACHON so'kma yoki masxara qilma — xatoni sovuqqonlik bilan tushuntir, bu o'rganishning tabiiy qismi.
-- DANGASALIK uchun (dars qoldirish, "keyin qilaman", yarim ishlash) — o'zbekcha hazil qarg'ishlar bilan koyi: "Paloving tuzsiz chiqsin!", "Telefoning 1% da qolib ketsin!". Bu faqat dangasalikka, hech qachon shaxsga emas.
+- Qattiqqo'l, lekin adolatli. Bo'sh maqtov yo'q.
+- XATO uchun HECH QACHON so'kma — xatoni sovuqqonlik bilan tushuntir.
+- DANGASALIK uchun (dars qoldirish, yarim ishlash) o'zbekcha hazil qarg'ishlar: "Paloving tuzsiz chiqsin!", "Telefoning 1% da qolib ketsin!". Faqat dangasalikka, hech qachon shaxsga emas.
 
-DARS TUZILISHI (har doim shu tartibda):
-1. 🔥 **Bugungi maqsad** — 1 jumla, aniq.
-2. 📖 **Nazariya** — o'zbekcha, 5-7 jumladan oshmasin. Qoidani o'zbek tili bilan solishtirib tushuntir.
-3. 🧩 **Mashqlar** — 8-10 ta. Turli xil: bo'sh joyni to'ldirish, tarjima (o'zbek→ingliz), xatoni top, gapni qayta yoz.
-4. 💬 **Jonli topshiriq** — real hayotdan vaziyat. Humoyun SMM menejer, o'quv markazida ishlaydi, kontent yaratadi — mashqlarni shu hayotga bog'la.
+DARS TUZILISHI:
+1. 🔥 **Bugungi maqsad** — 1 jumla.
+2. 📖 **Nazariya** — o'zbekcha, 5-7 jumla. Qoidani o'zbek tili bilan solishtir.
+3. 🧩 **Mashqlar** — 8-10 ta, turli xil: bo'sh joy, tarjima, xatoni top, qayta yoz.
+4. 💬 **Jonli topshiriq** — Humoyun SMM menejer, o'quv markazida ishlaydi, kontent yaratadi. Mashqlarni shu hayotga bog'la.
 5. ✍️ **Uy vazifasi** — 1 ta yozma topshiriq.
 
 QOIDALAR:
-- Javoblarni DARHOL berma. Humoyun yozgandan keyin tekshir.
-- Tushuntirishlar o'zbekcha, mashqlar inglizcha.
-- Har darsda oldingi darslardan 2 ta savolni takrorlab so'ra (aralash takrorlash).
-- Zerikarli bo'lma: memlar, real vaziyatlar, kutilmagan misollar ishlat.
+- Javoblarni BERMA. Humoyun yozgandan keyin tekshirasan.
+- Tushuntirish o'zbekcha, mashq inglizcha.
+- Har darsda oldingi mavzulardan 2 ta savol takrorla.
+- Zerikarli bo'lma: real vaziyatlar, kutilmagan misollar.
+
+MAJBURIY: darsning eng oxirida, alohida qatorda, shu darsda uchragan 6 ta yangi so'zni quyidagi formatda yoz:
+WORDS=word1|o'zbekcha ma'no;word2|o'zbekcha ma'no;...
 
 ${FORMAT}`,
     });
@@ -64,43 +80,40 @@ ${FORMAT}`,
         systemInstruction: `Sen Danny — Humoyunning ingliz tilida gaplashadigan DO'STIsan. O'qituvchi EMAS.
 
 - Unga "my friend" deb murojaat qil.
-- INGLIZ TILIDA gaplash — uning darajasiga moslab (hozir A1-A2, sodda gaplar, keng tarqalgan so'zlar).
-- Tushunmasa yoki so'rasa — o'zbekcha tushuntir, keyin yana inglizchaga qayt.
-- Hazillash, o'zingdan gapir, savol ber. Suhbat tabiiy bo'lsin, so'roq emas.
-- XATO qilsa: avval suhbatni davom ettir, keyin qavs ichida qisqa tuzatish ber — va o'zbekcha hazil qarg'ish otib qo'y: "telefoning qizib o'chib qolgur, 'he go' emas 'he goes'!". Bu do'stona hazil, jiddiy tanbeh emas.
-- Har javobing oxirida bitta savol bo'lsin — suhbat to'xtamasin.
-- Uzun ma'ruza yozma. 3-5 jumla yetadi.
+- INGLIZ TILIDA gaplash, uning darajasiga moslab (A1-A2: sodda gaplar, keng tarqalgan so'zlar).
+- Tushunmasa — o'zbekcha tushuntir, keyin inglizchaga qayt.
+- Hazillash, o'zingdan gapir. Suhbat tabiiy bo'lsin, so'roq emas.
+- XATO qilsa: suhbatni davom ettir, keyin qavsda qisqa tuzatish + o'zbekcha hazil qarg'ish: "telefoning qizib o'chib qolgur, 'he go' emas 'he goes'!".
+- Har javob oxirida bitta savol bo'lsin.
+- Uzun ma'ruza yozma — 3-5 jumla.
 
 ${FORMAT}`,
     });
 
     const examiner = genAI.getGenerativeModel({
         model: MODEL,
-        systemInstruction: `Sen IELTS Writing va Speaking bo'yicha rasmiy imtihonchisan. Qattiq, lekin izohli baholaysan.
+        systemInstruction: `Sen IELTS Writing bo'yicha rasmiy imtihonchisan.
 
-BAHOLASH (Writing Task 2 uchun 4 mezon, har biri 0-9):
-- Task Response
-- Coherence and Cohesion
-- Lexical Resource
-- Grammatical Range and Accuracy
+MEZONLAR (har biri 0-9): Task Response, Coherence and Cohesion, Lexical Resource, Grammatical Range and Accuracy.
 
-JAVOB TUZILISHI:
-1. 🎯 **Umumiy band** — o'rtacha ball, 0.5 aniqlikda.
-2. 📊 **Mezonlar bo'yicha** — har biri uchun ball va 1-2 jumla sabab.
-3. ❌ **Asosiy xatolar** — 5-8 ta, har biri: xato → to'g'risi → nega.
-4. 🔁 **Kuchaytirilgan variant** — matnning 1 band yuqori versiyasi.
+JAVOB:
+1. 🎯 **Umumiy band** — 0.5 aniqlikda.
+2. 📊 **Mezonlar** — har biri uchun ball va 1-2 jumla sabab.
+3. ❌ **Xatolar** — 5-8 ta: xato → to'g'risi → nega.
+4. 🔁 **Kuchaytirilgan variant** — 1 band yuqori versiya.
 5. 🎯 **Keyingi safar** — 3 ta aniq harakat.
 
-QOIDALAR:
-- Ballni oshirib yuborma. Haqiqiy IELTS imtihonchisi qanday baholasa, shunday baholang.
-- A1-A2 daraja matniga band 4 dan yuqori berma, agar haqiqatan loyiq bo'lmasa.
-- Tushuntirishlar o'zbekcha, misollar inglizcha.
+Ballni oshirib yuborma. Haqiqiy imtihonchi qanday baholasa, shunday. Tushuntirish o'zbekcha, misol inglizcha.
 
 ${FORMAT}`,
     });
 
-    // ==================== BAZA YORDAMCHILARI ====================
-    const noDb = () => "⚠️ Supabase ulanmagan — ingliz tili moduli baza bilan ishlaydi. Render'da SUPABASE_URL va SUPABASE_KEY ni tekshiring.";
+    // ==================== YORDAMCHILAR ====================
+    const noDb = () => "⚠️ Supabase ulanmagan. Render'da SUPABASE_URL va SUPABASE_KEY ni tekshiring.";
+    const fmtDate = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(d);
+    const today = () => fmtDate(new Date());
+    const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return fmtDate(d); };
+    const weekday = () => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tashkent', weekday: 'short' }).format(new Date());
 
     async function getProfile(chatId) {
         if (!supabase) return null;
@@ -117,26 +130,107 @@ ${FORMAT}`,
             .upsert({ chat_id: chatId, ...patch, updated_at: new Date().toISOString() });
     }
 
+    async function setMode(chatId, mode) {
+        if (!supabase) return;
+        await supabase.from('eng_profile').update({ mode }).eq('chat_id', chatId);
+    }
+
     async function logActivity(chatId, activity, score = null, notes = null) {
         if (!supabase) return;
         await supabase.from('eng_log').insert({ chat_id: chatId, activity, score, notes });
     }
 
-    const today = () => new Date().toISOString().slice(0, 10);
-
-    function addDays(n) {
-        const d = new Date();
-        d.setDate(d.getDate() + n);
-        return d.toISOString().slice(0, 10);
-    }
-
-    // Modeldan JSON olish (```json ... ``` bo'lsa tozalaydi)
     function parseJson(text) {
         const clean = text.replace(/```json|```/g, '').trim();
         const start = clean.search(/[[{]/);
         if (start === -1) return null;
         try { return JSON.parse(clean.slice(start)); } catch { return null; }
     }
+
+    // Yangi so'zlarni bazaga yozish — ERTAGA takrorga chiqadi
+    async function addWords(chatId, words) {
+        if (!supabase || !words?.length) return 0;
+        const rows = words.map((w) => ({
+            chat_id: chatId, word: w.word, meaning: w.meaning,
+            example: w.example || null, box: 1, next_review: addDays(1),
+        }));
+        await supabase.from('eng_vocab').upsert(rows, { onConflict: 'chat_id,word' });
+        return rows.length;
+    }
+
+    // ==================== TTS (matndan ovoz) ====================
+    function pcmToWav(pcm, sampleRate) {
+        const channels = 1, bits = 16;
+        const h = Buffer.alloc(44);
+        h.write('RIFF', 0);
+        h.writeUInt32LE(36 + pcm.length, 4);
+        h.write('WAVE', 8);
+        h.write('fmt ', 12);
+        h.writeUInt32LE(16, 16);
+        h.writeUInt16LE(1, 20);
+        h.writeUInt16LE(channels, 22);
+        h.writeUInt32LE(sampleRate, 24);
+        h.writeUInt32LE(sampleRate * channels * bits / 8, 28);
+        h.writeUInt16LE(channels * bits / 8, 32);
+        h.writeUInt16LE(bits, 34);
+        h.write('data', 36);
+        h.writeUInt32LE(pcm.length, 40);
+        return Buffer.concat([h, pcm]);
+    }
+
+    async function textToSpeech(text, voice = 'Kore') {
+        const res = await fetch(`${API_BASE}/models/${TTS_MODEL}:generateContent?key=${geminiApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text }] }],
+                generationConfig: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+                },
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || `TTS HTTP ${res.status}`);
+
+        const part = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
+        if (!part) throw new Error('TTS audio qaytarmadi.');
+
+        const rate = parseInt((part.inlineData.mimeType.match(/rate=(\d+)/) || [])[1] || '24000', 10);
+        return pcmToWav(Buffer.from(part.inlineData.data, 'base64'), rate);
+    }
+
+    // ==================== SESSIYALAR ====================
+    const sessions = new Map(); // chatId -> { type, data }
+
+    async function guardSession(ctx, type) {
+        const s = sessions.get(ctx.chat.id);
+        if (!s || s.type !== type) {
+            await setMode(ctx.chat.id, null);
+            await ctx.reply('⚠️ Mashq sessiyasi yo\'qolgan (bot qayta ishga tushgan). Komandani qaytadan yuboring.');
+            return null;
+        }
+        return s.data;
+    }
+
+    // ==================== /reja ====================
+    bot.command('reja', async (ctx) => {
+        const p = await getProfile(ctx.chat.id);
+        const wd = weekday();
+        const lines = Object.entries(WEEK_FOCUS).map(([k, v]) =>
+            `${k === wd ? '👉' : '  '} ${{ Mon: 'Dush', Tue: 'Sesh', Wed: 'Chor', Thu: 'Pay', Fri: 'Jum', Sat: 'Shan', Sun: 'Yak' }[k]} — ${v.name}`
+        );
+        ctx.reply(
+            `📅 Haftalik reja, Humoyun\n\n` +
+            `Har kuni doimiy:\n` +
+            `  06:40-07:40 — grammatika + yangi so'zlar (/eng)\n` +
+            `  ~13:30 — so'z takrori 25 daq (/word)\n` +
+            `  21:00-22:00 — kunlik fokus\n\n` +
+            `Kunlik fokus:\n${lines.join('\n')}\n\n` +
+            `Bugun: ${WEEK_FOCUS[wd].name}${WEEK_FOCUS[wd].cmd ? ` → ${WEEK_FOCUS[wd].cmd}` : ''}\n` +
+            `Dastur kuni: ${p?.day_number || 0} / 450`
+        );
+    });
 
     // ==================== /eng — BUGUNGI DARS ====================
     bot.command('eng', async (ctx) => {
@@ -145,34 +239,50 @@ ${FORMAT}`,
 
         try {
             const p = await getProfile(ctx.chat.id);
-            const newDay = p.day_number + 1;
 
-            // Streak hisobi
-            let streak = p.streak;
             if (p.last_day === today()) {
+                const wd = weekday();
                 await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
-                    `📌 Bugungi dars (kun ${p.day_number}) allaqachon berilgan, Humoyun.\n\nTakrorlash: /word\nSuhbat: /speak\nYozish: /write`);
+                    `📌 Kun ${p.day_number} darsi bugun allaqachon berilgan.\n\n` +
+                    `Bugungi fokus: ${WEEK_FOCUS[wd].name}${WEEK_FOCUS[wd].cmd ? `\n→ ${WEEK_FOCUS[wd].cmd}` : ''}\n\n` +
+                    `Takror: /word`);
                 return;
             }
-            streak = (p.last_day === addDays(-1)) ? streak + 1 : 1;
 
+            const newDay = p.day_number + 1;
+            const streak = (p.last_day === addDays(-1)) ? p.streak + 1 : 1;
+            const wd = weekday();
             const weak = (p.weak_points || []).join(', ') || 'hali aniqlanmagan';
 
-            const prompt = `Bugungi darsni tuz.
+            const result = await teacher.generateContent(
+                `Bugungi darsni tuz.
 
-Ma'lumot:
 - Kun raqami: ${newDay}
 - Daraja: ${p.level}
 - Streak: ${streak} kun
-- Zaif nuqtalar (albatta shularga urg'u ber): ${weak}
+- Bugungi haftalik fokus: ${WEEK_FOCUS[wd].name}
+- Zaif nuqtalar (ALBATTA shularga urg'u ber): ${weak}
 
-Dastur rejasi (shundan chetga chiqma):
+Dastur rejasi (chetga chiqma):
 ${SYLLABUS}
 
-Kun ${newDay} qaysi bosqichga to'g'ri kelsa, o'sha bosqich mavzularidan mos keladigan BITTA mavzuni ol va shu bo'yicha to'liq dars ber. Mavzu nomini boshida ayt.`;
+Kun ${newDay} qaysi bosqichga to'g'ri kelsa, o'sha bosqichdan BITTA mavzu ol. Mavzu nomini boshida ayt.
+Oxiridagi WORDS= qatorini unutma.`
+            );
 
-            const result = await teacher.generateContent(prompt);
-            const lesson = result.response.text();
+            let lesson = result.response.text();
+
+            // Yangi so'zlarni ajratib olish
+            const wm = lesson.match(/WORDS=(.+)/i);
+            let added = 0;
+            if (wm) {
+                const words = wm[1].split(';').map((chunk) => {
+                    const [word, meaning] = chunk.split('|');
+                    return word && meaning ? { word: word.trim(), meaning: meaning.trim() } : null;
+                }).filter(Boolean);
+                added = await addWords(ctx.chat.id, words);
+                lesson = lesson.replace(/WORDS=.+/i, '').trim();
+            }
 
             await saveProfile(ctx.chat.id, {
                 level: p.level, day_number: newDay, streak, last_day: today(),
@@ -180,8 +290,11 @@ Kun ${newDay} qaysi bosqichga to'g'ri kelsa, o'sha bosqich mavzularidan mos kela
             });
             await logActivity(ctx.chat.id, 'lesson', null, `kun ${newDay}`);
 
+            const footer = `\n\n📝 ${added} ta yangi so'z bazaga yozildi — **ertaga** /word da so'raladi.` +
+                (WEEK_FOCUS[wd].cmd ? `\n🎯 Bugungi fokus: ${WEEK_FOCUS[wd].name} → ${WEEK_FOCUS[wd].cmd}` : '');
+
             await sendFormatted(ctx, msg.message_id,
-                `🔥 **Kun ${newDay}** · Streak: ${streak} kun · Daraja: ${p.level}\n\n${lesson}`);
+                `🔥 **Kun ${newDay}** · Streak: ${streak} · Daraja: ${p.level}\n\n${lesson}${footer}`);
 
         } catch (e) {
             console.error('Dars xatosi:', e);
@@ -189,12 +302,11 @@ Kun ${newDay} qaysi bosqichga to'g'ri kelsa, o'sha bosqich mavzularidan mos kela
         }
     });
 
-    // ==================== /word — SO'Z TAKRORI ====================
+    // ==================== /word ====================
     bot.command('word', async (ctx) => {
         if (!supabase) return ctx.reply(noDb());
         const arg = ctx.message.text.replace(/^\/word(@\S+)?\s*/i, '').trim();
 
-        // /word new — yangi so'zlar
         if (/^new$/i.test(arg)) {
             const msg = await ctx.reply("📝 Yangi so'zlar tanlanyapti...");
             try {
@@ -203,50 +315,37 @@ Kun ${newDay} qaysi bosqichga to'g'ri kelsa, o'sha bosqich mavzularidan mos kela
                     .from('eng_vocab').select('word').eq('chat_id', ctx.chat.id).limit(500);
                 const known = (existing || []).map((r) => r.word).join(', ');
 
-                const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
+                const gen = await plain().generateContent(
                     `${p.level} darajadagi o'zbek o'quvchisi uchun 10 ta YANGI, kundalik hayotda eng ko'p ishlatiladigan inglizcha so'z tanla.
-Quyidagilar allaqachon o'rganilgan, ULARNI QAYTARMA: ${known || 'yo\'q'}
+Allaqachon o'rganilgan, QAYTARMA: ${known || "yo'q"}
 
-FAQAT JSON massiv qaytar, boshqa hech narsa yozma:
-[{"word":"...","meaning":"o'zbekcha ma'nosi","example":"inglizcha qisqa misol gap"}]`
+FAQAT JSON massiv qaytar:
+[{"word":"...","meaning":"o'zbekcha ma'nosi","example":"inglizcha qisqa misol"}]`
                 );
 
                 const words = parseJson(gen.response.text());
                 if (!Array.isArray(words) || !words.length) throw new Error("So'zlar olinmadi");
 
-                const rows = words.map((w) => ({
-                    chat_id: ctx.chat.id, word: w.word, meaning: w.meaning,
-                    example: w.example, box: 1, next_review: today(),
-                }));
-                await supabase.from('eng_vocab').upsert(rows, { onConflict: 'chat_id,word' });
-
-                const text = `📝 **10 ta yangi so'z qo'shildi**\n\n` +
-                    words.map((w, i) => `${i + 1}. **${w.word}** — ${w.meaning}\n   *${w.example}*`).join('\n\n') +
-                    `\n\n💡 Ertaga /word yuboring — takrorga chiqadi.`;
-
-                await sendFormatted(ctx, msg.message_id, text);
+                await addWords(ctx.chat.id, words);
                 await logActivity(ctx.chat.id, 'vocab_new', words.length);
+
+                await sendFormatted(ctx, msg.message_id,
+                    `📝 **10 ta yangi so'z**\n\n` +
+                    words.map((w, i) => `${i + 1}. **${w.word}** — ${w.meaning}\n   *${w.example || ''}*`).join('\n\n') +
+                    `\n\n⏰ **Ertaga** /word yuboring — shu so'zlar so'raladi.`);
             } catch (e) {
                 await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
             }
             return;
         }
 
-        // /word add so'z - ma'nosi
         if (/^add\s+/i.test(arg)) {
-            const body = arg.replace(/^add\s+/i, '');
-            const [word, meaning] = body.split(/\s*[-—]\s*/);
-            if (!word || !meaning) {
-                return ctx.reply("Format: /word add book - kitob");
-            }
-            await supabase.from('eng_vocab').upsert(
-                { chat_id: ctx.chat.id, word: word.trim(), meaning: meaning.trim(), box: 1, next_review: today() },
-                { onConflict: 'chat_id,word' }
-            );
-            return ctx.reply(`✅ **${word.trim()}** qo'shildi.`, { parse_mode: 'HTML' });
+            const [word, meaning] = arg.replace(/^add\s+/i, '').split(/\s*[-—]\s*/);
+            if (!word || !meaning) return ctx.reply('Format: /word add book - kitob');
+            await addWords(ctx.chat.id, [{ word: word.trim(), meaning: meaning.trim() }]);
+            return ctx.reply(`✅ ${word.trim()} qo'shildi. Ertaga so'raladi.`);
         }
 
-        // Takror sessiyasi
         const msg = await ctx.reply("🔁 Takror uchun so'zlar olinyapti...");
         try {
             const { data: due } = await supabase
@@ -254,205 +353,371 @@ FAQAT JSON massiv qaytar, boshqa hech narsa yozma:
                 .eq('chat_id', ctx.chat.id).lte('next_review', today())
                 .order('next_review').limit(10);
 
-            if (!due || !due.length) {
+            if (!due?.length) {
                 const { count } = await supabase.from('eng_vocab')
                     .select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id);
+                const { data: nxt } = await supabase.from('eng_vocab')
+                    .select('next_review').eq('chat_id', ctx.chat.id)
+                    .order('next_review').limit(1).maybeSingle();
                 await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
-                    `✅ Bugun takrorlanadigan so'z yo'q, Humoyun.\n\nBazada jami: ${count || 0} ta so'z.\nYangi so'z olish: /word new`);
+                    `✅ Bugun takrorlanadigan so'z yo'q.\n\nBazada: ${count || 0} ta\n` +
+                    `Keyingi takror: ${nxt?.next_review || '—'}\n\nYangi so'z: /word new`);
                 return;
             }
 
-            await saveProfile(ctx.chat.id, { mode: 'word_test' });
-            wordSession.set(ctx.chat.id, due);
+            // Qutiga qarab 3 xil topshiriq turi
+            const tasks = due.map((w) => {
+                if (w.box <= 2) return { w, type: 'uz2en', q: `${w.meaning} — inglizchasi?` };
+                if (w.box === 3) return { w, type: 'en2uz', q: `${w.word} — o'zbekchasi?` };
+                return { w, type: 'sentence', q: `${w.word} — shu so'z bilan gap tuzing` };
+            });
 
-            const text = `🔁 **So'z takrori — ${due.length} ta**\n\n` +
-                `Quyidagi so'zlarning INGLIZCHASINI bitta xabarda, raqamlab yozing:\n\n` +
-                due.map((w, i) => `${i + 1}. ${w.meaning}`).join('\n') +
-                `\n\n💡 Bilmagan joyga "?" qo'ying — jazo yo'q, aniqlik muhim.`;
+            sessions.set(ctx.chat.id, { type: 'word_test', data: tasks });
+            await setMode(ctx.chat.id, 'word_test');
 
-            await sendFormatted(ctx, msg.message_id, text);
+            await sendFormatted(ctx, msg.message_id,
+                `🔁 **So'z takrori — ${tasks.length} ta**\n\n` +
+                `Bitta xabarda, raqamlab javob bering:\n\n` +
+                tasks.map((t, i) => `${i + 1}. ${t.q}`).join('\n') +
+                `\n\n💡 Bilmasangiz "?" qo'ying — taxmin qilmang.`);
         } catch (e) {
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
         }
     });
 
-    const wordSession = new Map();
-
     async function gradeWordTest(ctx, answer) {
-        const due = wordSession.get(ctx.chat.id) || [];
-        const msg = await ctx.reply('📊 Tekshirilyapti...');
+        const tasks = await guardSession(ctx, 'word_test');
+        if (!tasks) return;
 
+        const msg = await ctx.reply('📊 Tekshirilyapti...');
         try {
-            const list = due.map((w, i) => `${i + 1}. ${w.meaning} = ${w.word}`).join('\n');
-            const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
-                `To'g'ri javoblar:\n${list}\n\nO'quvchi javobi:\n${answer}\n\n` +
-                `Har bir raqam bo'yicha o'quvchi to'g'ri yozganmi aniqla. Kichik imlo xatosi (1 harf) TO'G'RI hisoblanadi.\n` +
-                `FAQAT JSON qaytar: [{"n":1,"correct":true,"given":"o'quvchi yozgani"}]`
+            const spec = tasks.map((t, i) => {
+                if (t.type === 'uz2en') return `${i + 1}. [tarjima uz→en] to'g'ri javob: ${t.w.word}`;
+                if (t.type === 'en2uz') return `${i + 1}. [tarjima en→uz] to'g'ri javob: ${t.w.meaning}`;
+                return `${i + 1}. [gap tuzish] "${t.w.word}" so'zi grammatik to'g'ri va ma'noli ishlatilgan bo'lsa to'g'ri`;
+            }).join('\n');
+
+            const gen = await plain().generateContent(
+                `Topshiriqlar:\n${spec}\n\nO'quvchi javobi:\n${answer}\n\n` +
+                `Har raqam bo'yicha to'g'ri/noto'g'ri aniqla. 1 harflik imlo xatosi TO'G'RI.\n` +
+                `FAQAT JSON: [{"n":1,"correct":true,"given":"yozgani","note":"xato bo'lsa qisqa izoh"}]`
             );
 
             const results = parseJson(gen.response.text()) || [];
             let right = 0;
             const lines = [];
 
-            for (const w of due) {
-                const idx = due.indexOf(w) + 1;
-                const r = results.find((x) => x.n === idx);
+            for (let i = 0; i < tasks.length; i++) {
+                const t = tasks[i];
+                const r = results.find((x) => x.n === i + 1);
                 const ok = r?.correct === true;
                 if (ok) right++;
 
-                const newBox = ok ? Math.min(w.box + 1, MAX_BOX) : 1;
+                const newBox = ok ? Math.min(t.w.box + 1, MAX_BOX) : 1;
                 await supabase.from('eng_vocab')
                     .update({ box: newBox, next_review: addDays(BOX_INTERVALS[newBox]) })
-                    .eq('id', w.id);
+                    .eq('id', t.w.id);
 
                 lines.push(ok
-                    ? `✅ ${idx}. **${w.word}** — ${w.meaning}`
-                    : `❌ ${idx}. **${w.word}** — ${w.meaning}${r?.given ? ` (siz: ${r.given})` : ''}`);
+                    ? `✅ ${i + 1}. **${t.w.word}** — ${t.w.meaning}`
+                    : `❌ ${i + 1}. **${t.w.word}** — ${t.w.meaning}${r?.note ? ` (${r.note})` : ''}`);
             }
 
-            const pct = Math.round((right / due.length) * 100);
-            const verdict = pct >= 90 ? "Zo'r natija." : pct >= 70 ? 'Yaxshi, lekin yetarli emas.' : "Bu so'zlar ustida yana ishlash kerak.";
+            const pct = Math.round((right / tasks.length) * 100);
+            const verdict = pct >= 90 ? "Zo'r." : pct >= 70 ? 'Yaxshi, lekin yetarli emas.' : 'Bu so\'zlar ustida yana ishlash kerak.';
 
-            wordSession.delete(ctx.chat.id);
-            await saveProfile(ctx.chat.id, { mode: null });
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
             await logActivity(ctx.chat.id, 'vocab_test', pct);
 
             await sendFormatted(ctx, msg.message_id,
-                `📊 **Natija: ${right}/${due.length} (${pct}%)**\n${verdict}\n\n${lines.join('\n')}\n\n` +
-                `Xato so'zlar ertaga yana chiqadi, to'g'rilari ${BOX_INTERVALS[2]}+ kundan keyin.`);
-
+                `📊 **${right}/${tasks.length} (${pct}%)** — ${verdict}\n\n${lines.join('\n')}\n\n` +
+                `Xatolar ertaga qaytadi, to'g'rilari keyinroq.`);
         } catch (e) {
-            wordSession.delete(ctx.chat.id);
-            await saveProfile(ctx.chat.id, { mode: null });
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
         }
     }
 
-    // ==================== /speak — DANNY BILAN SUHBAT ====================
+    // ==================== /listen ====================
+    bot.command('listen', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const msg = await ctx.reply('🎧 Audio tayyorlanyapti...');
+
+        try {
+            const p = await getProfile(ctx.chat.id);
+            const gen = await plain().generateContent(
+                `${p.level} darajadagi o'quvchi uchun listening mashqi tuz.
+
+1. 110-150 so'zlik tabiiy inglizcha MATN yoz (dialog yoki qisqa hikoya). Kundalik mavzu: do'kon, ish, sayohat, kafe, telefon suhbati.
+2. Shu matn bo'yicha 5 ta tushunish savoli yoz (inglizcha).
+
+FAQAT JSON qaytar:
+{"script":"...","questions":["1. ...","2. ..."],"answers":["...","..."]}`
+            );
+
+            const data = parseJson(gen.response.text());
+            if (!data?.script) throw new Error('Matn olinmadi');
+
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, '🔊 Ovozga aylantirilyapti...');
+            const wav = await textToSpeech(data.script);
+
+            await ctx.replyWithAudio({ source: wav, filename: 'listening.wav' },
+                { caption: '🎧 2 marta tinglang. Matn keyin ko\'rsatiladi.' });
+
+            sessions.set(ctx.chat.id, { type: 'listen_test', data });
+            await setMode(ctx.chat.id, 'listen_test');
+
+            await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
+            await ctx.reply(`🎧 **Savollar**\n\n${data.questions.join('\n')}\n\nJavoblarni bitta xabarda raqamlab yozing.`,
+                { parse_mode: 'HTML' }).catch(() => ctx.reply(`Savollar:\n${data.questions.join('\n')}`));
+
+        } catch (e) {
+            console.error('Listening xatosi:', e);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
+                `❌ Xatolik: ${e.message}\n\nTTS model: ${TTS_MODEL}\nBoshqa modelni sinash: Render'da TTS_MODEL o'zgaruvchisi.`);
+        }
+    });
+
+    async function gradeListen(ctx, answer) {
+        const d = await guardSession(ctx, 'listen_test');
+        if (!d) return;
+
+        const msg = await ctx.reply('📊 Tekshirilyapti...');
+        try {
+            const gen = await plain().generateContent(
+                `Matn:\n${d.script}\n\nSavollar:\n${d.questions.join('\n')}\nTo'g'ri javoblar:\n${d.answers.join('\n')}\n\n` +
+                `O'quvchi javoblari:\n${answer}\n\n` +
+                `Har savolni tekshir: ✅/❌ + to'g'ri javob + qisqa izoh (o'zbekcha). Oxirida **Natija: X/5**.\n\n${FORMAT}`
+            );
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'listening');
+
+            await sendFormatted(ctx, msg.message_id,
+                `${gen.response.text()}\n\n📄 **Matn:**\n${d.script}`);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /read ====================
+    bot.command('read', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const msg = await ctx.reply('📖 Matn tayyorlanyapti...');
+
+        try {
+            const p = await getProfile(ctx.chat.id);
+            const ielts = p.day_number >= 150;
+
+            const gen = await plain().generateContent(
+                `${p.level} darajadagi o'quvchi uchun reading mashqi tuz.
+
+1. ${ielts ? '250-300' : '150-200'} so'zlik inglizcha matn (qiziqarli fakt, ilm-fan, tarix yoki texnologiya).
+2. ${ielts
+                    ? "6 ta IELTS uslubidagi savol: 2 ta True/False/Not Given, 2 ta bo'sh joyni to'ldirish, 2 ta ko'p tanlovli."
+                    : '5 ta oddiy tushunish savoli.'}
+
+FAQAT JSON:
+{"passage":"...","questions":["1. ...","2. ..."],"answers":["...","..."]}`
+            );
+
+            const data = parseJson(gen.response.text());
+            if (!data?.passage) throw new Error('Matn olinmadi');
+
+            sessions.set(ctx.chat.id, { type: 'read_test', data });
+            await setMode(ctx.chat.id, 'read_test');
+
+            await sendFormatted(ctx, msg.message_id,
+                `📖 **Reading**\n\n${data.passage}\n\n❓ **Savollar**\n${data.questions.join('\n')}\n\n` +
+                `Javoblarni bitta xabarda raqamlab yozing.`);
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeRead(ctx, answer) {
+        const d = await guardSession(ctx, 'read_test');
+        if (!d) return;
+
+        const msg = await ctx.reply('📊 Tekshirilyapti...');
+        try {
+            const gen = await plain().generateContent(
+                `Matn:\n${d.passage}\n\nSavollar:\n${d.questions.join('\n')}\nTo'g'ri javoblar:\n${d.answers.join('\n')}\n\n` +
+                `O'quvchi javoblari:\n${answer}\n\n` +
+                `Har savolni tekshir: ✅/❌ + to'g'ri javob + matnning qaysi joyidan ekanini ko'rsat (o'zbekcha izoh). ` +
+                `Oxirida **Natija: X/${d.questions.length}** va 1 ta o'qish strategiyasi bo'yicha maslahat.\n\n${FORMAT}`
+            );
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'reading');
+            await sendFormatted(ctx, msg.message_id, gen.response.text());
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /essay ====================
+    bot.command('essay', async (ctx) => {
+        const msg = await ctx.reply('✍️ Mavzu va reja tayyorlanyapti...');
+        try {
+            const p = await getProfile(ctx.chat.id);
+            const ielts = p.day_number >= 150;
+
+            const gen = await plain().generateContent(
+                `${p.level} darajadagi o'quvchi uchun ${ielts ? 'IELTS Writing Task 2' : "oddiy yozma"} topshirig'i tuz.
+
+Javob tuzilishi:
+1. 📝 **Mavzu** — inglizcha savol${ielts ? ' (IELTS formatida)' : ''}.
+2. 🗂 **Reja** — abzatslar bo'yicha nima yozish kerakligi (o'zbekcha).
+3. 🔤 **Foydali iboralar** — 6-8 ta, tarjimasi bilan.
+4. 📏 **Hajm** — ${ielts ? "250 so'z" : "80-120 so'z"}.
+
+Namuna esse YOZMA — o'quvchi o'zi yozadi.\n\n${FORMAT}`
+            );
+
+            sessions.set(ctx.chat.id, { type: 'essay', data: { topic: gen.response.text() } });
+            await setMode(ctx.chat.id, 'essay');
+
+            await sendFormatted(ctx, msg.message_id,
+                `${gen.response.text()}\n\n💡 Esseni yozib, shu yerga yuboring — imtihonchi baholaydi. Bekor qilish: /stop`);
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeEssay(ctx, text) {
+        const d = await guardSession(ctx, 'essay');
+        if (!d) return;
+
+        const msg = await ctx.reply('📝 Imtihonchi baholayapti...');
+        try {
+            const p = await getProfile(ctx.chat.id);
+            const result = await examiner.generateContent(
+                `Topshiriq:\n${d.topic}\n\nO'quvchi darajasi: ${p.level}, dastur kuni: ${p.day_number}.\n\nEssesi:\n${text}`
+            );
+            const out = result.response.text();
+            const band = parseFloat((out.match(/(\d(?:\.\d)?)\s*(?:band|ball)/i) || [])[1]) || null;
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'essay', band, text.slice(0, 200));
+            await sendFormatted(ctx, msg.message_id, out);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /write (tez baholash) ====================
+    bot.command('write', async (ctx) => {
+        const input = ctx.message.text.replace(/^\/write(@\S+)?\s*/i, '').trim();
+        if (!input) return ctx.reply("✍️ To'liq mashq uchun: /essay\nTayyor matnni baholash uchun: /write <matn>");
+
+        const msg = await ctx.reply('📝 Baholanyapti...');
+        try {
+            const p = await getProfile(ctx.chat.id);
+            const result = await examiner.generateContent(
+                `O'quvchi darajasi: ${p.level}, kun ${p.day_number}.\n\nMatn:\n${input}`
+            );
+            const out = result.response.text();
+            const band = parseFloat((out.match(/(\d(?:\.\d)?)\s*(?:band|ball)/i) || [])[1]) || null;
+            await logActivity(ctx.chat.id, 'writing', band, input.slice(0, 200));
+            await sendFormatted(ctx, msg.message_id, out);
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    });
+
+    // ==================== /speak ====================
     bot.command('speak', async (ctx) => {
         const topic = ctx.message.text.replace(/^\/speak(@\S+)?\s*/i, '').trim();
-        await saveProfile(ctx.chat.id, { mode: 'speak' });
-        speakHistory.set(ctx.chat.id, []);
+        sessions.set(ctx.chat.id, { type: 'speak', data: [] });
+        await setMode(ctx.chat.id, 'speak');
 
         const msg = await ctx.reply('💬 Danny ulanyapti...');
         try {
             const result = await buddy.generateContent(
-                topic
-                    ? `Start a casual conversation about: ${topic}. Greet your friend first.`
+                topic ? `Start a casual conversation about: ${topic}. Greet your friend first.`
                     : `Greet your friend and start a casual conversation. Ask what he's been up to today.`
             );
             await sendFormatted(ctx, msg.message_id,
-                `${result.response.text()}\n\n_(Suhbat rejimi yoqildi. Ovozli xabar ham yuborishingiz mumkin. Chiqish: /stop)_`);
+                `${result.response.text()}\n\n_(Suhbat rejimi. Ovozli xabar ham yuboring. Chiqish: /stop)_`);
             await logActivity(ctx.chat.id, 'speak_start');
         } catch (e) {
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
         }
     });
 
-    const speakHistory = new Map();
-
     bot.command('stop', async (ctx) => {
-        await saveProfile(ctx.chat.id, { mode: null });
-        speakHistory.delete(ctx.chat.id);
-        wordSession.delete(ctx.chat.id);
-        ctx.reply('🛑 Rejim yopildi. Asosiy yordamchiga qaytdik.');
+        sessions.delete(ctx.chat.id);
+        await setMode(ctx.chat.id, null);
+        ctx.reply('🛑 Rejim yopildi.');
     });
 
-    // ==================== /write — IELTS EKSPERTIZASI ====================
-    bot.command('write', async (ctx) => {
-        const input = ctx.message.text.replace(/^\/write(@\S+)?\s*/i, '').trim();
-
-        if (!input) {
-            const msg = await ctx.reply('✍️ Topshiriq tayyorlanyapti...');
-            try {
-                const p = await getProfile(ctx.chat.id);
-                const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
-                    `${p.level} darajadagi o'quvchi uchun BITTA yozma topshiriq ber.
-${p.day_number < 150 ? "Oddiy mavzu, 60-100 so'z (IELTS emas, sodda yozish mashqi)." : "IELTS Writing Task 2 uslubida, 250 so'z."}
-Topshiriqni inglizcha yoz, ostiga o'zbekcha 1 jumla izoh qo'sh. Boshqa hech narsa yozma.`
-                );
-                await sendFormatted(ctx, msg.message_id,
-                    `✍️ **Yozma topshiriq**\n\n${gen.response.text()}\n\n💡 Yozib bo'lgach: /write <matningiz>`);
-            } catch (e) {
-                await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
-            }
-            return;
-        }
-
-        const msg = await ctx.reply('📝 Imtihonchi baholayapti...');
-        try {
-            const p = await getProfile(ctx.chat.id);
-            const result = await examiner.generateContent(
-                `O'quvchi darajasi: ${p.level}, dastur kuni: ${p.day_number}.\n\nMatn:\n${input}`
-            );
-            const text = result.response.text();
-
-            const bandMatch = text.match(/(\d(?:\.\d)?)\s*(?:band|ball)/i);
-            const band = bandMatch ? parseFloat(bandMatch[1]) : null;
-
-            await logActivity(ctx.chat.id, 'writing', band, input.slice(0, 200));
-            await sendFormatted(ctx, msg.message_id, text);
-        } catch (e) {
-            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
-        }
-    });
-
-    // ==================== /test — DARAJA TEKSHIRUVI ====================
+    // ==================== /test ====================
     bot.command('test', async (ctx) => {
         const msg = await ctx.reply('🎯 Test tayyorlanyapti...');
         try {
             const p = await getProfile(ctx.chat.id);
-            const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
-                `Ingliz tili daraja tekshiruvi tuz. Joriy taxminiy daraja: ${p.level}.
+            const gen = await plain().generateContent(
+                `Ingliz tili daraja tekshiruvi tuz. Joriy daraja: ${p.level}.
 
-12 ta savol: 6 tasi ${p.level} darajada, 4 tasi bir pog'ona yuqori, 2 tasi ikki pog'ona yuqori.
-YOPIQ TEST EMAS — o'quvchi o'zi yozib javob bersin (tarjima, bo'sh joyni to'ldirish, gap tuzish).
-Savollarni raqamlab yoz. Javoblarni BERMA.
-Boshida 1 jumla: "Javoblarni bitta xabarda raqamlab yozing."
-
-${FORMAT}`
+12 ta savol: 6 tasi ${p.level}, 4 tasi bir pog'ona yuqori, 2 tasi ikki pog'ona yuqori.
+YOPIQ TEST EMAS — o'quvchi yozib javob bersin. Raqamla. Javoblarni BERMA.
+Boshida: "Javoblarni bitta xabarda raqamlab yozing."\n\n${FORMAT}`
             );
-            await saveProfile(ctx.chat.id, { mode: 'level_test' });
-            levelTest.set(ctx.chat.id, gen.response.text());
-            await sendFormatted(ctx, msg.message_id, gen.response.text());
+            const q = gen.response.text();
+            sessions.set(ctx.chat.id, { type: 'level_test', data: q });
+            await setMode(ctx.chat.id, 'level_test');
+            await sendFormatted(ctx, msg.message_id, q);
         } catch (e) {
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
         }
     });
 
-    const levelTest = new Map();
-
     async function gradeLevelTest(ctx, answer) {
-        const questions = levelTest.get(ctx.chat.id) || '';
-        const msg = await ctx.reply('📊 Daraja aniqlanyapti...');
+        const questions = await guardSession(ctx, 'level_test');
+        if (!questions) return;
 
+        const msg = await ctx.reply('📊 Daraja aniqlanyapti...');
         try {
-            const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
-                `Savollar:\n${questions}\n\nO'quvchi javoblari:\n${answer}\n\n` +
-                `Har bir javobni tekshir. Keyin CEFR darajasini aniqla (A1, A2, B1, B2, C1).\n` +
-                `Javob tuzilishi:\n1. Har savol: ✅/❌ + to'g'ri javob + qisqa izoh\n2. **Natija: X/12**\n` +
-                `3. **Darajangiz: [CEFR]**\n4. **Zaif nuqtalar:** 3-5 ta aniq grammatik mavzu\n\n` +
-                `Eng oxirida alohida qatorda faqat shuni yoz:\nLEVEL=<CEFR>|WEAK=<mavzu1>,<mavzu2>,<mavzu3>\n\n${FORMAT}`
+            const gen = await plain().generateContent(
+                `Savollar:\n${questions}\n\nJavoblar:\n${answer}\n\n` +
+                `Har javobni tekshir, keyin CEFR darajani aniqla.\n` +
+                `1. Har savol: ✅/❌ + to'g'ri javob + izoh\n2. **Natija: X/12**\n3. **Darajangiz: [CEFR]**\n` +
+                `4. **Zaif nuqtalar:** 3-5 ta grammatik mavzu\n\n` +
+                `Oxirida alohida qatorda:\nLEVEL=<CEFR>|WEAK=<m1>,<m2>,<m3>\n\n${FORMAT}`
             );
 
             let text = gen.response.text();
             const meta = text.match(/LEVEL=([A-C][12])\|WEAK=(.+)/i);
 
             if (meta) {
-                const level = meta[1].toUpperCase();
-                const weak = meta[2].split(',').map((s) => s.trim()).filter(Boolean);
-                await saveProfile(ctx.chat.id, { level, weak_points: weak, mode: null });
+                await saveProfile(ctx.chat.id, {
+                    level: meta[1].toUpperCase(),
+                    weak_points: meta[2].split(',').map((s) => s.trim()).filter(Boolean),
+                    mode: null,
+                });
                 text = text.replace(/LEVEL=.+/i, '').trim();
             } else {
-                await saveProfile(ctx.chat.id, { mode: null });
+                await setMode(ctx.chat.id, null);
             }
 
-            levelTest.delete(ctx.chat.id);
+            sessions.delete(ctx.chat.id);
             await logActivity(ctx.chat.id, 'level_test');
             await sendFormatted(ctx, msg.message_id, text);
         } catch (e) {
-            levelTest.delete(ctx.chat.id);
-            await saveProfile(ctx.chat.id, { mode: null });
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
         }
     }
@@ -462,27 +727,35 @@ ${FORMAT}`
         if (!supabase) return ctx.reply(noDb());
         try {
             const p = await getProfile(ctx.chat.id);
-            const { count: total } = await supabase.from('eng_vocab')
-                .select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id);
-            const { count: learned } = await supabase.from('eng_vocab')
-                .select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id).gte('box', 4);
-            const { count: due } = await supabase.from('eng_vocab')
-                .select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id).lte('next_review', today());
-            const { data: bands } = await supabase.from('eng_log')
-                .select('score').eq('chat_id', ctx.chat.id).eq('activity', 'writing')
-                .not('score', 'is', null).order('created_at', { ascending: false }).limit(3);
+            const cnt = async (q) => (await q).count || 0;
+            const base = () => supabase.from('eng_vocab').select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id);
+
+            const total = await cnt(base());
+            const learned = await cnt(base().gte('box', 4));
+            const due = await cnt(base().lte('next_review', today()));
+
+            const { data: logs } = await supabase.from('eng_log')
+                .select('activity, score').eq('chat_id', ctx.chat.id)
+                .not('score', 'is', null).order('created_at', { ascending: false }).limit(20);
+
+            const bands = (logs || []).filter((l) => l.activity === 'essay' || l.activity === 'writing')
+                .slice(0, 3).map((l) => l.score).join(' → ') || "hali yo'q";
+            const vocabAvg = (() => {
+                const v = (logs || []).filter((l) => l.activity === 'vocab_test').slice(0, 5).map((l) => l.score);
+                return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + '%' : "hali yo'q";
+            })();
 
             const weak = (p.weak_points || []).length ? p.weak_points.join(', ') : 'aniqlanmagan (/test)';
-            const lastBands = (bands || []).map((b) => b.score).join(' → ') || "hali yo'q";
 
             ctx.reply(
                 `📈 Statistika, Humoyun\n\n` +
                 `🔥 Streak: ${p.streak} kun\n` +
-                `📅 Dastur kuni: ${p.day_number} / 450\n` +
+                `📅 Kun: ${p.day_number} / 450\n` +
                 `🎓 Daraja: ${p.level}\n` +
-                `📚 So'zlar: ${total || 0} ta (mustahkam: ${learned || 0})\n` +
-                `🔁 Bugun takrorga: ${due || 0} ta\n` +
-                `✍️ Oxirgi writing ballari: ${lastBands}\n` +
+                `📚 So'zlar: ${total} ta (mustahkam: ${learned})\n` +
+                `🔁 Bugun takrorga: ${due} ta\n` +
+                `🎯 So'z testlari o'rtachasi: ${vocabAvg}\n` +
+                `✍️ Oxirgi writing ballari: ${bands}\n` +
                 `⚠️ Zaif nuqtalar: ${weak}`
             );
         } catch (e) {
@@ -491,7 +764,6 @@ ${FORMAT}`
     });
 
     // ==================== REJIM USHLAGICHI ====================
-    // Faol rejim bo'lsa xabarni shu modul ushlaydi, aks holda asosiy botga uzatadi
     bot.on('message', async (ctx, next) => {
         if (!supabase) return next();
         if (ctx.message.text && ctx.message.text.startsWith('/')) return next();
@@ -499,21 +771,19 @@ ${FORMAT}`
         const p = await getProfile(ctx.chat.id);
         if (!p?.mode) return next();
 
-        // So'z testi javobi
-        if (p.mode === 'word_test' && ctx.message.text) {
-            return gradeWordTest(ctx, ctx.message.text);
-        }
+        const txt = ctx.message.text;
 
-        // Daraja testi javobi
-        if (p.mode === 'level_test' && ctx.message.text) {
-            return gradeLevelTest(ctx, ctx.message.text);
-        }
+        if (p.mode === 'word_test' && txt) return gradeWordTest(ctx, txt);
+        if (p.mode === 'level_test' && txt) return gradeLevelTest(ctx, txt);
+        if (p.mode === 'listen_test' && txt) return gradeListen(ctx, txt);
+        if (p.mode === 'read_test' && txt) return gradeRead(ctx, txt);
+        if (p.mode === 'essay' && txt) return gradeEssay(ctx, txt);
 
-        // Danny bilan suhbat (matn yoki ovoz)
         if (p.mode === 'speak') {
             const msg = await ctx.reply('💬 ...');
             try {
-                const hist = speakHistory.get(ctx.chat.id) || [];
+                const s = sessions.get(ctx.chat.id);
+                const hist = s?.type === 'speak' ? s.data : [];
                 const parts = [];
 
                 if (ctx.message.voice) {
@@ -523,20 +793,18 @@ ${FORMAT}`
                     parts.push({ text: "My friend sent a voice message. Listen, reply naturally, and if his pronunciation or grammar has a clear mistake, correct it briefly in brackets." });
                     parts.push({ inlineData: { data: Buffer.from(buf).toString('base64'), mimeType: 'audio/ogg' } });
                 } else {
-                    parts.push({ text: ctx.message.text || '...' });
+                    parts.push({ text: txt || '...' });
                 }
 
-                const result = await buddy.generateContent({
-                    contents: [...hist, { role: 'user', parts }],
-                });
+                const result = await buddy.generateContent({ contents: [...hist, { role: 'user', parts }] });
                 const reply = result.response.text();
 
-                const newHist = [
-                    ...hist,
-                    { role: 'user', parts: [{ text: ctx.message.text || '[voice message]' }] },
-                    { role: 'model', parts: [{ text: reply }] },
-                ].slice(-16);
-                speakHistory.set(ctx.chat.id, newHist);
+                sessions.set(ctx.chat.id, {
+                    type: 'speak',
+                    data: [...hist,
+                        { role: 'user', parts: [{ text: txt || '[voice message]' }] },
+                        { role: 'model', parts: [{ text: reply }] }].slice(-16),
+                });
 
                 await sendFormatted(ctx, msg.message_id, reply);
             } catch (e) {
@@ -545,17 +813,16 @@ ${FORMAT}`
             return;
         }
 
-        // 'lesson' rejimida javoblarni Mr. Grim tekshiradi
-        if (p.mode === 'lesson' && ctx.message.text) {
+        if (p.mode === 'lesson' && txt) {
             const msg = await ctx.reply('📝 Mr. Grim tekshiryapti...');
             try {
                 const result = await teacher.generateContent(
-                    `Humoyun bugungi dars mashqlariga javob berdi (kun ${p.day_number}, daraja ${p.level}).\n\n` +
-                    `Javoblari:\n${ctx.message.text}\n\n` +
-                    `Har bir javobni tekshir: ✅/❌, to'g'ri variant va qisqa izoh. ` +
-                    `Oxirida umumiy natija va 1 ta tavsiya. Xato ko'p bo'lsa qattiq gapir, lekin so'kma.`
+                    `Humoyun dars mashqlariga javob berdi (kun ${p.day_number}, daraja ${p.level}).\n\n` +
+                    `Javoblari:\n${txt}\n\n` +
+                    `Har javobni tekshir: ✅/❌, to'g'ri variant, qisqa izoh. Oxirida umumiy natija va 1 ta tavsiya. ` +
+                    `WORDS= qatorini bu safar YOZMA.`
                 );
-                await sendFormatted(ctx, msg.message_id, result.response.text());
+                await sendFormatted(ctx, msg.message_id, result.response.text().replace(/WORDS=.+/i, '').trim());
                 await logActivity(ctx.chat.id, 'homework');
             } catch (e) {
                 await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
@@ -566,21 +833,17 @@ ${FORMAT}`
         return next();
     });
 
-    // ==================== KUNLIK ESLATMALAR (Toshkent vaqti) ====================
+    // ==================== ESLATMALAR (Toshkent) ====================
     const tz = { timezone: 'Asia/Tashkent' };
 
-    // 06:40 — ertalabki blok
     cron.schedule('40 6 * * 1-6', async () => {
         try {
             const p = await getProfile(myTelegramId);
             await bot.telegram.sendMessage(myTelegramId,
-                `☀️ 06:40 — ertalabki blok, Humoyun.\n\n` +
-                `60 daqiqa: yangi grammatika + so'zlar.\nStreak: ${p?.streak || 0} kun\n\n` +
-                `Boshlash: /eng`);
-        } catch (e) { console.error('Ertalabki eslatma xatosi:', e.message); }
+                `☀️ 06:40 — ertalabki blok.\n\n60 daqiqa: grammatika + yangi so'zlar.\nStreak: ${p?.streak || 0} kun\n\n/eng`);
+        } catch (e) { console.error('Ertalabki eslatma:', e.message); }
     }, tz);
 
-    // 13:30 — o'lik vaqt bloki
     cron.schedule('30 13 * * 1-6', async () => {
         try {
             const { count } = await supabase.from('eng_vocab')
@@ -588,33 +851,28 @@ ${FORMAT}`
                 .eq('chat_id', myTelegramId).lte('next_review', today());
             if (count > 0) {
                 await bot.telegram.sendMessage(myTelegramId,
-                    `🔁 Takror vaqti — ${count} ta so'z kutyapti.\n25 daqiqa yetadi.\n\n/word`);
+                    `🔁 Takror vaqti — ${count} ta so'z kutyapti. 25 daqiqa.\n\n/word`);
             }
-        } catch (e) { console.error('Kunduzgi eslatma xatosi:', e.message); }
+        } catch (e) { console.error('Kunduzgi eslatma:', e.message); }
     }, tz);
 
-    // 21:00 — kechki blok
     cron.schedule('0 21 * * 1-6', async () => {
         try {
+            const f = WEEK_FOCUS[weekday()];
             await bot.telegram.sendMessage(myTelegramId,
-                `🌙 21:00 — kechki blok.\n\n` +
-                `60 daqiqa: gapirish va yozish.\n\n` +
-                `Suhbat: /speak\nYozma: /write`);
-        } catch (e) { console.error('Kechki eslatma xatosi:', e.message); }
+                `🌙 21:00 — kechki blok.\n\nBugungi fokus: ${f.name}${f.cmd ? `\n\n${f.cmd}` : ''}`);
+        } catch (e) { console.error('Kechki eslatma:', e.message); }
     }, tz);
 
-    // 22:30 — dars qoldirilgan bo'lsa
     cron.schedule('30 22 * * 1-6', async () => {
         try {
             const p = await getProfile(myTelegramId);
             if (p?.last_day !== today()) {
                 await bot.telegram.sendMessage(myTelegramId,
-                    `😤 Humoyun. Bugun dars bo'lmadi.\n\n` +
-                    `${p?.streak || 0} kunlik streak bir kunlik dangasalikka arziydimi? Paloving tuzsiz chiqsin!\n\n` +
-                    `Hali kech emas: /eng`);
+                    `😤 Humoyun. Bugun dars bo'lmadi.\n\n${p?.streak || 0} kunlik streak bir kunlik dangasalikka arziydimi? Paloving tuzsiz chiqsin!\n\nHali kech emas: /eng`);
             }
-        } catch (e) { console.error('Tungi eslatma xatosi:', e.message); }
+        } catch (e) { console.error('Tungi eslatma:', e.message); }
     }, tz);
 
-    console.log('📚 Ingliz tili moduli yuklandi (eslatmalar: 06:40, 13:30, 21:00, 22:30 Toshkent).');
+    console.log('📚 Ingliz tili moduli v2 yuklandi (grammar, vocab, listening, reading, essay, speaking).');
 };
