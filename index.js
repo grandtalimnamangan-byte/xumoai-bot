@@ -8,7 +8,7 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const myTelegramId = parseInt(process.env.MY_TELEGRAM_ID, 10);
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== 'false'; // xato bersa Render'da 'false' qo'ying
+const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== 'false';
 
 if (!token || !geminiApiKey || !myTelegramId) {
     console.error('XATO: TELEGRAM_BOT_TOKEN / GEMINI_API_KEY / MY_TELEGRAM_ID topilmadi!');
@@ -38,17 +38,22 @@ JAVOB BERISH QOIDALARI:
 - DIN: ishonchli manbalarga tayanib ma'lumot ber, turli mazhab va qarashlar bo'lsa ularni ko'rsat. Fatvo talab qiladigan shaxsiy masalalarda — mahalliy olim yoki imomga murojaat qilishni tavsiya qil.
 - Humoyun xato qilsa yoki g'oyasida kamchilik ko'rsang — ochiq ayt, shunchaki maqtama.
 
+FORMATLASH (Telegram uchun muhim):
+- Faqat **qalin**, *kursiv*, \`kod\` va "-" bilan boshlanadigan oddiy ro'yxatlardan foydalan.
+- ### sarlavhalar, --- ajratuvchi chiziqlar, jadvallar va > sitatalardan FOYDALANMA. Ular Telegram'da xunuk chiqadi.
+- Bo'limlarni ajratish kerak bo'lsa — emoji + **qalin sarlavha** ishlat.
+
 USLUB: professional, ijodiy, aniq va qisqa. O'zbek tilida (zarurat bo'lsa ingliz/arab tillarida). O'rinli emojilardan foydalan.`;
 
 const modelConfig = { model: MODEL, systemInstruction };
 if (ENABLE_SEARCH) modelConfig.tools = [{ googleSearch: {} }];
 
 const model = genAI.getGenerativeModel(modelConfig);
-const modelNoTools = genAI.getGenerativeModel({ model: MODEL, systemInstruction }); // zaxira
+const modelNoTools = genAI.getGenerativeModel({ model: MODEL, systemInstruction });
 
 // ==================== XOTIRA ====================
 const chatHistory = new Map();
-const MAX_HISTORY = 20; // 10 juft savol-javob
+const MAX_HISTORY = 20;
 
 // ==================== RENDER SERVER + UYQUGA QARSHI ====================
 const port = process.env.PORT || 3000;
@@ -58,9 +63,7 @@ http.createServer((req, res) => {
 }).listen(port, () => console.log(`Render server port ${port} da ishga tushdi.`));
 
 const selfUrl = process.env.RENDER_EXTERNAL_URL;
-if (selfUrl) {
-    setInterval(() => { fetch(selfUrl).catch(() => {}); }, 14 * 60 * 1000);
-}
+if (selfUrl) setInterval(() => { fetch(selfUrl).catch(() => {}); }, 14 * 60 * 1000);
 
 // ==================== XAVFSIZLIK ====================
 bot.use((ctx, next) => {
@@ -68,16 +71,82 @@ bot.use((ctx, next) => {
     return ctx.reply("🔒 Kechirasiz, men faqat o'z egamga (Humoyunga) xizmat qilaman.");
 });
 
-// ==================== YORDAMCHILAR ====================
-const TG_LIMIT = 4000;
+// ==================== MARKDOWN → TELEGRAM HTML ====================
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-async function sendLongReply(ctx, loadingMsgId, text) {
-    const chunks = [];
-    for (let i = 0; i < text.length; i += TG_LIMIT) chunks.push(text.slice(i, i + TG_LIMIT));
-    if (chunks.length === 0) chunks.push("(bo'sh javob)");
+function mdToHtml(md) {
+    const blocks = [];
+    const inlines = [];
+    let t = md;
 
-    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, chunks[0]);
-    for (const chunk of chunks.slice(1)) await ctx.reply(chunk);
+    // Kod bloklarini vaqtincha ajratib qo'yamiz
+    t = t.replace(/```[a-zA-Z0-9]*\n?([\s\S]*?)```/g, (_, code) => {
+        blocks.push(code);
+        return `\u0000B${blocks.length - 1}\u0000`;
+    });
+    t = t.replace(/`([^`\n]+)`/g, (_, code) => {
+        inlines.push(code);
+        return `\u0000I${inlines.length - 1}\u0000`;
+    });
+
+    t = esc(t);
+
+    t = t.replace(/^\s*([-*_]\s?){3,}\s*$/gm, '');        // --- chiziqlar
+    t = t.replace(/^#{1,6}\s*(.+)$/gm, (_, h) => `<b>${h.trim()}</b>`); // sarlavhalar
+    t = t.replace(/^\s*&gt;\s?/gm, '');                    // sitatalar
+    t = t.replace(/^(\s*)[*+-]\s+/gm, '$1• ');             // ro'yxat belgilari
+    t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');      // qalin
+    t = t.replace(/__([^_\n]+)__/g, '<b>$1</b>');
+    t = t.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>'); // kursiv
+    t = t.replace(/(^|[\s(])_([^_\n]+)_/g, '$1<i>$2</i>');
+
+    t = t.replace(/\u0000I(\d+)\u0000/g, (_, i) => `<code>${esc(inlines[+i])}</code>`);
+    t = t.replace(/\u0000B(\d+)\u0000/g, (_, i) => `<pre><code>${esc(blocks[+i])}</code></pre>`);
+
+    return t.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function splitText(text, limit = 3800) {
+    const out = [];
+    let cur = '';
+    for (const line of text.split('\n')) {
+        if (line.length > limit) {
+            if (cur) { out.push(cur); cur = ''; }
+            for (let i = 0; i < line.length; i += limit) out.push(line.slice(i, i + limit));
+        } else if ((cur ? cur.length + 1 : 0) + line.length > limit) {
+            out.push(cur);
+            cur = line;
+        } else {
+            cur = cur ? cur + '\n' + line : line;
+        }
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : ["(bo'sh javob)"];
+}
+
+async function sendFormatted(ctx, loadingMsgId, raw) {
+    const htmlChunks = splitText(mdToHtml(raw));
+    const plainChunks = splitText(raw);
+
+    for (let i = 0; i < htmlChunks.length; i++) {
+        const html = htmlChunks[i];
+        const plain = plainChunks[i] || html.replace(/<[^>]+>/g, '');
+        try {
+            if (i === 0) {
+                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, html, { parse_mode: 'HTML' });
+            } else {
+                await ctx.reply(html, { parse_mode: 'HTML' });
+            }
+        } catch (e) {
+            // HTML buzilgan bo'lsa — oddiy matn bilan yuboramiz
+            console.warn('HTML parse xato, plain rejimga o\'tildi:', e.message);
+            if (i === 0) {
+                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsgId, undefined, plain);
+            } else {
+                await ctx.reply(plain);
+            }
+        }
+    }
 }
 
 async function fileToPart(ctx, fileId, mimeType) {
@@ -152,7 +221,6 @@ bot.on('message', async (ctx) => {
             const result = await model.generateContent(request);
             replyText = result.response.text();
         } catch (searchErr) {
-            // Qidiruv vositasi qo'llab-quvvatlanmasa — vositasiz qayta urinamiz
             console.warn("Tools bilan xato, zaxiraga o'tildi:", searchErr.message);
             const result = await modelNoTools.generateContent(request);
             replyText = result.response.text();
@@ -160,7 +228,6 @@ bot.on('message', async (ctx) => {
 
         if (!replyText) replyText = "Javob bo'sh qaytdi. Savolni boshqacha shaklda bering.";
 
-        // Xotiraga faqat matn saqlanadi (base64 fayllar xotirani to'ldirmasligi uchun)
         const newHistory = [
             ...history,
             { role: 'user', parts: [{ text: text + mediaNote }] },
@@ -168,7 +235,7 @@ bot.on('message', async (ctx) => {
         ];
         chatHistory.set(ctx.chat.id, newHistory.slice(-MAX_HISTORY));
 
-        await sendLongReply(ctx, loadingMsg.message_id, replyText);
+        await sendFormatted(ctx, loadingMsg.message_id, replyText);
 
     } catch (error) {
         console.error('API Xatolik:', error);
