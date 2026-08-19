@@ -315,8 +315,19 @@ const VOICES = {
 };
 
 let currentVoice = process.env.TTS_VOICE || 'Charon';
+let voiceStyle = process.env.TTS_STYLE || '';       // "tez", "sekin", "xotirjam", "jonli"
+let voiceFull = process.env.VOICE_FULL === 'true';  // uzun javobni bo'lib to'liq o'qish
+let voiceMode = false;                              // /suhbat — matnga ham ovozda javob
 const VOICE_REPLY = process.env.VOICE_REPLY !== 'false';
 const VOICE_MAX_CHARS = parseInt(process.env.VOICE_MAX_CHARS || '1500', 10);
+
+const STYLES = {
+    tez: 'Speak quickly and energetically: ',
+    sekin: 'Speak slowly and clearly: ',
+    xotirjam: 'Speak in a calm, measured tone: ',
+    jonli: 'Speak in a warm, lively tone: ',
+    rasmiy: 'Speak in a formal, professional tone: ',
+};
 
 // PCM → MP3 (sof JS, ffmpeg kerak emas). Telegram sendAudio faqat MP3/M4A qabul qiladi.
 let lamejsCache = null;
@@ -367,11 +378,12 @@ const TTS_MODELS = (process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts,gemin
 let lastTtsDebug = null;
 
 async function ttsOnce(modelName, text) {
+    const styled = (STYLES[voiceStyle] || '') + text;
     const res = await fetch(`${API_BASE}/models/${modelName}:generateContent?key=${geminiApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            contents: [{ parts: [{ text }] }],
+            contents: [{ parts: [{ text: styled }] }],
             generationConfig: {
                 responseModalities: ['AUDIO'],
                 speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentVoice } } },
@@ -481,13 +493,45 @@ async function deliverAudio(ctx, audio, title = 'JARVIS') {
 
 let lastMediaError = null;
 
+// Matnni gap chegarasida bo'laklarga bo'lish
+function splitForSpeech(text, limit) {
+    const parts = [];
+    let cur = '';
+    for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+        if ((cur + ' ' + sentence).length > limit && cur) {
+            parts.push(cur.trim());
+            cur = sentence;
+        } else {
+            cur += (cur ? ' ' : '') + sentence;
+        }
+    }
+    if (cur.trim()) parts.push(cur.trim());
+    return parts;
+}
+
 async function sendVoiceReply(ctx, rawText) {
     if (!VOICE_REPLY) return false;
 
     let speech = textForSpeech(rawText);
     if (!speech) return false;
 
-    // Javob uzun bo'lsa — ovoz uchun qisqa xulosa tayyorlaymiz
+    // To'liq o'qish rejimi — bo'laklarga bo'lib yuboramiz
+    if (speech.length > VOICE_MAX_CHARS && voiceFull) {
+        const chunks = splitForSpeech(speech, VOICE_MAX_CHARS).slice(0, 6);
+        let ok = false;
+        for (let i = 0; i < chunks.length; i++) {
+            try {
+                const audio = await textToSpeech(chunks[i]);
+                await deliverAudio(ctx, audio, `JARVIS ${i + 1}/${chunks.length}`);
+                ok = true;
+            } catch (e) {
+                console.warn(`Ovoz bo'lagi ${i + 1}:`, e.message);
+            }
+        }
+        return ok;
+    }
+
+    // Javob uzun bo'lsa — ovoz uchun qisqa xulosa
     if (speech.length > VOICE_MAX_CHARS) {
         try {
             const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
@@ -686,11 +730,42 @@ bot.command('ovozi', async (ctx) => {
         const list = Object.entries(VOICES)
             .map(([n, d]) => `${n === currentVoice ? '👉' : '  '} <b>${n}</b> — ${d}`).join('\n');
         return ctx.reply(
-            `🎙 <b>Hozirgi ovoz:</b> ${currentVoice}\n\n${list}\n\n` +
+            `🎙 <b>Hozirgi ovoz:</b> ${currentVoice}\n` +
+            `🎭 <b>Uslub:</b> ${voiceStyle || 'oddiy'}\n` +
+            `📖 <b>To'liq o'qish:</b> ${voiceFull ? 'yoqilgan' : "o'chirilgan"}\n\n${list}\n\n` +
             `Almashtirish: /ovozi Puck\n` +
-            `Sinash: /ovozi sinov — barcha erkak ovozlarini eshitasiz\n\n` +
-            `<i>Doimiy qilish uchun Render'da TTS_VOICE o'zgaruvchisiga yozing.</i>`,
+            `Barchasini eshitish: /ovozi sinov\n` +
+            `Uslub: /ovozi uslub xotirjam\n` +
+            `To'liq o'qish: /ovozi toliq\n` +
+            `Ovozli rejim: /suhbat\n\n` +
+            `<i>Doimiy qilish: Render'da TTS_VOICE, TTS_STYLE, VOICE_FULL.</i>`,
             { parse_mode: 'HTML' }
+        );
+    }
+
+    // Uslub
+    if (/^uslub/i.test(arg)) {
+        const s = arg.replace(/^uslub\s*/i, '').trim().toLowerCase();
+        if (!s) {
+            return ctx.reply(
+                `🎭 Hozirgi uslub: ${voiceStyle || 'oddiy'}\n\n` +
+                `Mavjudlari: ${Object.keys(STYLES).join(', ')}, oddiy\n\n` +
+                `Misol: /ovozi uslub xotirjam`
+            );
+        }
+        if (s === 'oddiy') { voiceStyle = ''; return ctx.reply('🎭 Uslub: oddiy'); }
+        if (!STYLES[s]) return ctx.reply(`"${s}" yo'q. Mavjudlari: ${Object.keys(STYLES).join(', ')}, oddiy`);
+        voiceStyle = s;
+        return ctx.reply(`🎭 Uslub: ${s}\n\nDoimiy qilish: Render'da TTS_STYLE = ${s}`);
+    }
+
+    // To'liq o'qish rejimi
+    if (/^to'?liq$/i.test(arg)) {
+        voiceFull = !voiceFull;
+        return ctx.reply(
+            voiceFull
+                ? "📖 To'liq o'qish YOQILDI.\nUzun javoblar bo'laklarga bo'linib to'liq o'qiladi."
+                : "📝 To'liq o'qish o'chirildi.\nUzun javoblar uchun qisqa ovozli xulosa beriladi."
         );
     }
 
@@ -739,6 +814,70 @@ bot.command('ovozi', async (ctx) => {
             `Ovoz ${found} ga o'zgartirildi, lekin sinov yuborilmadi: ${e.message}`);
     }
 });
+
+// ==================== /suhbat — ovozli rejim ====================
+bot.command('suhbat', async (ctx) => {
+    voiceMode = !voiceMode;
+    ctx.reply(
+        voiceMode
+            ? "🎧 Ovozli rejim YOQILDI.\n\nEndi matn yozsangiz ham javob ovozda ham keladi.\nO'chirish: /suhbat"
+            : "💬 Ovozli rejim o'chirildi.\n\nOvozli javob faqat ovozli xabarga beriladi."
+    );
+});
+
+// ==================== OVOZDAN VAZIFA AJRATISH ====================
+// Ovozli xabarda vazifa/g'oya aytilgan bo'lsa, avtomatik ajratib bazaga yozadi
+async function extractFromVoice(ctx, transcriptHint, taskApi) {
+    if (!supabase || !taskApi) return null;
+
+    try {
+        const { data: projects } = await supabase.from('projects')
+            .select('id, slug, name').eq('chat_id', ctx.chat.id);
+
+        const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
+            `Bugun: ${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date())}\n` +
+            `Loyihalar: ${(projects || []).map((p) => `${p.id}=${p.slug}`).join(', ') || "yo'q"}\n\n` +
+            `Foydalanuvchi ovozli xabar yubordi. Uning mazmuni:\n"${transcriptHint}"\n\n` +
+            `Bu xabarda BAJARILISHI KERAK BO'LGAN ISHLAR yoki SAQLASH KERAK BO'LGAN G'OYALAR bormi?\n\n` +
+            `MUHIM: agar bu shunchaki savol, so'rov yoki suhbat bo'lsa — bo'sh qaytar.\n` +
+            `Faqat aniq harakat yoki g'oya aytilgan bo'lsa ajrat.\n\n` +
+            `FAQAT JSON:\n` +
+            `{"confidence":0.0-1.0,"tasks":[{"title":"...","due_date":"YYYY-MM-DD yoki null","due_time":"HH:MM yoki null","project_id":raqam yoki null,"priority":1-5}],"ideas":[{"text":"...","project_id":raqam yoki null}]}`
+        );
+
+        const clean = gen.response.text().replace(/```json|```/g, '').trim();
+        const start = clean.search(/[[{]/);
+        if (start === -1) return null;
+        const r = JSON.parse(clean.slice(start));
+
+        if (!r || r.confidence < 0.7) return null;
+        if (!r.tasks?.length && !r.ideas?.length) return null;
+
+        const saved = { tasks: [], ideas: [] };
+
+        for (const t of (r.tasks || []).slice(0, 8)) {
+            try {
+                const row = await taskApi.addTask(ctx.chat.id, t, 'ovoz');
+                saved.tasks.push(row);
+            } catch (e) { console.warn('Vazifa yozilmadi:', e.message); }
+        }
+
+        for (const i of (r.ideas || []).slice(0, 8)) {
+            try {
+                await supabase.from('project_notes').insert({
+                    chat_id: ctx.chat.id, project_id: i.project_id || null,
+                    kind: 'gaoya', body: i.text,
+                });
+                saved.ideas.push(i.text);
+            } catch (e) { console.warn("G'oya yozilmadi:", e.message); }
+        }
+
+        return saved;
+    } catch (e) {
+        console.warn('Ovozdan ajratish xatosi:', e.message);
+        return null;
+    }
+}
 
 // ==================== /prompt — tashqi AI vositalar uchun prompt ====================
 bot.command('prompt', async (ctx) => {
@@ -834,8 +973,11 @@ bot.command('ovoz', async (ctx) => {
     }
 });
 
+// ==================== VAZIFALAR ====================
+const taskApi = require('./tasks')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
+
 // ==================== ERTALABKI BRIFING ====================
-require('./briefing')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
+require('./briefing')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId, sendVoiceReply });
 
 // ==================== SOG'LIQ MODULI ====================
 require('./health')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
@@ -927,8 +1069,26 @@ bot.on('message', async (ctx) => {
 
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
 
-        // Ovozli xabarga — ovozli javob ham (matn baribir yuqorida qoladi)
-        if (m.voice) await sendVoiceReply(ctx, replyText);
+        // Ovozli xabarda vazifa yoki g'oya aytilgan bo'lsa — ajratib yozamiz
+        if (m.voice) {
+            const saved = await extractFromVoice(ctx, text + ' ' + replyText.slice(0, 500), taskApi);
+            if (saved && (saved.tasks.length || saved.ideas.length)) {
+                const lines = ['📥 **Ovozdan ajratildi**'];
+                if (saved.tasks.length) {
+                    lines.push('', `📌 Vazifalar (${saved.tasks.length}):`);
+                    saved.tasks.forEach((t) => lines.push(`- ${t.title}${t.due_date ? ` — ${t.due_date}` : ''}`));
+                }
+                if (saved.ideas.length) {
+                    lines.push('', `💡 G'oyalar (${saved.ideas.length}):`);
+                    saved.ideas.forEach((i) => lines.push(`- ${i}`));
+                }
+                lines.push('', `Ro'yxat: /vazifalar · Keraksizini: /ochir <raqam>`);
+                await ctx.reply(lines.join('\n').replace(/\*\*/g, ''));
+            }
+        }
+
+        // Ovozli javob: ovozli xabarga har doim, matnga — /suhbat yoqilgan bo'lsa
+        if (m.voice || voiceMode) await sendVoiceReply(ctx, replyText);
     } catch (error) {
         console.error('API Xatolik:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
@@ -939,6 +1099,10 @@ bot.on('message', async (ctx) => {
 // ==================== KOMANDALAR MENYUSI ====================
 const COMMANDS = [
     { command: 'brifing', description: '🌅 Kunlik brifing' },
+    { command: 'vazifalar', description: '📌 Ochiq vazifalar' },
+    { command: 'vazifa', description: "➕ Vazifa qo'shish" },
+    { command: 'bajardim', description: '✅ Vazifani yopish' },
+    { command: 'suhbat', description: '🎧 Ovozli rejim' },
     { command: 'bugun', description: '🎯 Bugungi 3 ta ustuvor ish' },
     { command: 'loyiha', description: '📁 Loyihalar (yangi / <slug>)' },
     { command: 'gaoya', description: "💡 G'oyani saqlash" },

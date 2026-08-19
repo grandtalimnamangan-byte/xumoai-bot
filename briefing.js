@@ -23,7 +23,8 @@ const WEATHER_CODE = {
 const WEEK_UZ = { Mon: 'Dushanba', Tue: 'Seshanba', Wed: 'Chorshanba', Thu: 'Payshanba', Fri: 'Juma', Sat: 'Shanba', Sun: 'Yakshanba' };
 
 module.exports = function registerBriefing(bot, deps) {
-    const { genAI, MODEL, supabase, sendFormatted, myTelegramId } = deps;
+    const { genAI, MODEL, supabase, sendFormatted, myTelegramId, sendVoiceReply } = deps;
+    const VOICE_BRIEFING = process.env.VOICE_BRIEFING === 'true';
 
     const plain = () => genAI.getGenerativeModel({ model: MODEL });
     const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date());
@@ -209,9 +210,14 @@ module.exports = function registerBriefing(bot, deps) {
 
     // ==================== /brifing ====================
     bot.command(['brifing', 'kun'], async (ctx) => {
+        const arg = ctx.message.text.replace(/^\/(brifing|kun)(@\S+)?\s*/i, '').trim();
         const msg = await ctx.reply('Brifing tayyorlanyapti...');
         try {
-            await sendFormatted(ctx, msg.message_id, await buildBriefing(ctx.chat.id));
+            const text = await buildBriefing(ctx.chat.id);
+            await sendFormatted(ctx, msg.message_id, text);
+
+            // /brifing ovoz — ovozda ham eshitish
+            if (/^ovoz$/i.test(arg) && sendVoiceReply) await sendVoiceReply(ctx, text);
         } catch (e) {
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
         }
@@ -225,6 +231,16 @@ module.exports = function registerBriefing(bot, deps) {
             for (const c of chunks) {
                 await bot.telegram.sendMessage(myTelegramId, c, { parse_mode: 'HTML' })
                     .catch(() => bot.telegram.sendMessage(myTelegramId, c.replace(/\*\*/g, '')).catch(() => {}));
+            }
+
+            // Ovozli brifing — uyg'onganda telefonni ushlamasdan tinglash uchun
+            if (VOICE_BRIEFING && sendVoiceReply) {
+                const fakeCtx = {
+                    chat: { id: myTelegramId },
+                    replyWithAudio: (...a) => bot.telegram.sendAudio(myTelegramId, ...a),
+                    replyWithDocument: (...a) => bot.telegram.sendDocument(myTelegramId, ...a),
+                };
+                await sendVoiceReply(fakeCtx, text);
             }
         } catch (e) { console.error('Ertalabki brifing xatosi:', e.message); }
     }, { timezone: 'Asia/Tashkent' });
