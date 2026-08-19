@@ -412,11 +412,13 @@ bot.start(async (ctx) => {
     ctx.reply(
         `${salom}, Humoyun. Men JARVIS — sizning shaxsiy AI assistentingizman.\n\n` +
         `Matn, rasm va ovozni tushunaman. Suhbat kontekstini eslab qolaman.\n\n` +
+        `🎯 /bugun — bugungi 3 ta ustuvor ish\n` +
+        `📁 /loyiha — loyihalar holati\n` +
+        `💡 /gaoya — g'oyani saqlash\n` +
         `🧮 /hisob — moliyaviy hisob-kitob\n` +
         `🛒 /harid — tovar tahlili\n` +
         `🎬 /prompt — AI vositalar uchun prompt\n` +
         `📚 /eng — ingliz tili darsi\n` +
-        `📅 /reja — haftalik reja\n` +
         `⚙️ /status — tizim holati\n\n` +
         `To'liq ro'yxat: "/" tugmasi.`
     );
@@ -654,6 +656,12 @@ bot.command('ovoz', async (ctx) => {
     }
 });
 
+// ==================== SOG'LIQ MODULI ====================
+require('./health')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
+
+// ==================== LOYIHALAR MIYASI ====================
+require('./projects')(bot, { genAI, MODEL, supabase, sendFormatted });
+
 // ==================== INGLIZ TILI MODULI ====================
 require('./english')(bot, { genAI, MODEL, supabase, sendFormatted, esc, myTelegramId, geminiApiKey });
 
@@ -749,6 +757,17 @@ bot.on('message', async (ctx) => {
 
 // ==================== KOMANDALAR MENYUSI ====================
 const COMMANDS = [
+    { command: 'bugun', description: '🎯 Bugungi 3 ta ustuvor ish' },
+    { command: 'loyiha', description: '📁 Loyihalar (yangi / <slug>)' },
+    { command: 'gaoya', description: "💡 G'oyani saqlash" },
+    { command: 'holat', description: '🔄 Loyiha holatini yangilash' },
+    { command: 'menyu', description: '🍽 Bugungi ovqat rejasi' },
+    { command: 'ovqat', description: '🥗 Yeganingizni yozish' },
+    { command: 'suv', description: '💧 +1 stakan suv' },
+    { command: 'sport', description: '🏋️ Bugungi mashq' },
+    { command: 'vazn', description: '⚖️ Vaznni yozish' },
+    { command: 'tahlil', description: '📊 Haftalik sog\'liq tahlili' },
+    { command: 'tana', description: '📏 Tana sozlamalari' },
     { command: 'eng', description: '📚 Bugungi dars' },
     { command: 'word', description: "🔁 So'z takrori (new / add)" },
     { command: 'chunk', description: "🧱 So'z birikmalari" },
