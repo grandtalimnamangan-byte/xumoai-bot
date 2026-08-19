@@ -297,7 +297,6 @@ async function uploadMedia(buffer, ext, contentType) {
 }
 
 // ==================== OVOZ SINTEZI ====================
-const TTS_MODEL = process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 const TTS_VOICE = process.env.TTS_VOICE || 'Kore';
 const VOICE_REPLY = process.env.VOICE_REPLY !== 'false';
 const VOICE_MAX_CHARS = parseInt(process.env.VOICE_MAX_CHARS || '1200', 10);
@@ -321,8 +320,14 @@ function pcmToWav(pcm, sampleRate) {
     return Buffer.concat([h, pcm]);
 }
 
-async function textToSpeech(text) {
-    const res = await fetch(`${API_BASE}/models/${TTS_MODEL}:generateContent?key=${geminiApiKey}`, {
+// Bir nechta TTS modelini ketma-ket sinaymiz
+const TTS_MODELS = (process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts,gemini-3.1-flash-tts-preview,gemini-2.5-pro-preview-tts')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+
+let lastTtsDebug = null;
+
+async function ttsOnce(modelName, text) {
+    const res = await fetch(`${API_BASE}/models/${modelName}:generateContent?key=${geminiApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -333,14 +338,42 @@ async function textToSpeech(text) {
             },
         }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error?.message || `TTS HTTP ${res.status}`);
 
-    const part = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
-    if (!part) throw new Error('TTS audio qaytarmadi.');
+    const raw = await res.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { throw new Error(`JSON emas: ${raw.slice(0, 200)}`); }
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${data?.error?.message || raw.slice(0, 200)}`);
+
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const part = parts.find((p) => p.inlineData);
+
+    if (!part) {
+        // Nima qaytganini aniq ko'rsatamiz
+        const finish = data?.candidates?.[0]?.finishReason || '?';
+        const keys = parts.map((p) => Object.keys(p).join('+')).join(', ') || 'parts yo\'q';
+        const textPart = parts.find((p) => p.text)?.text?.slice(0, 120) || '';
+        throw new Error(`audio yo'q · finishReason=${finish} · parts=[${keys}]${textPart ? ` · matn="${textPart}"` : ''}`);
+    }
 
     const rate = parseInt((part.inlineData.mimeType.match(/rate=(\d+)/) || [])[1] || '24000', 10);
     return pcmToWav(Buffer.from(part.inlineData.data, 'base64'), rate);
+}
+
+async function textToSpeech(text) {
+    const errors = [];
+    for (const m of TTS_MODELS) {
+        try {
+            const wav = await ttsOnce(m, text);
+            console.log(`TTS muvaffaqiyatli: ${m}`);
+            return wav;
+        } catch (e) {
+            console.warn(`TTS ${m}: ${e.message}`);
+            errors.push(`${m} → ${e.message}`);
+        }
+    }
+    lastTtsDebug = errors.join('\n\n');
+    throw new Error('Hech bir TTS modeli audio bermadi');
 }
 
 // Ovoz uchun matnni tozalash — belgilar o'qib berilmasligi kerak
@@ -439,6 +472,7 @@ bot.command('status', async (ctx) => {
         `💾 Doimiy xotira: ${supabase ? 'yoqilgan (Supabase)' : "o'chirilgan (RAM)"}\n` +
         `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}\n` +
         `🔊 Ovozli javob: ${VOICE_REPLY && supabase ? 'yoqilgan' : "o'chirilgan"}\n` +
+        `🎙 TTS modellari: ${TTS_MODELS.join(', ')}\n` +
         `📦 Media ombori: ${supabase ? BUCKET : "yo'q"}\n` +
         `🧮 Hisob kodi ko'rinishi: ${SHOW_CODE ? 'yoqilgan' : "o'chirilgan"}`
     );
@@ -653,7 +687,7 @@ bot.command('ovoz', async (ctx) => {
         }
     } catch (e) {
         await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
-            `Ovoz yaratilmadi: ${e.message}`);
+            `Ovoz yaratilmadi: ${e.message}\n\n${(lastTtsDebug || '').slice(0, 3000)}`);
     }
 });
 
