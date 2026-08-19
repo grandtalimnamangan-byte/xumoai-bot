@@ -29,9 +29,9 @@ To'liq mock testlar, vaqt boshqaruvi, xatolar ustida ish, murakkab tuzilmalar, r
 
 // Haftalik aylanma — har kuni so'z + grammatika, ustiga kunlik fokus
 const WEEK_FOCUS = {
-    Mon: { name: 'Grammatika chuqur', cmd: null },
-    Tue: { name: 'Listening', cmd: '/listen' },
-    Wed: { name: 'Reading', cmd: '/read' },
+    Mon: { name: 'Grammatika + birikmalar', cmd: '/chunk' },
+    Tue: { name: 'Listening + tez tarjima', cmd: '/drill' },
+    Wed: { name: 'Reading + talaffuz', cmd: '/talaffuz' },
     Thu: { name: 'Writing / Essay', cmd: '/essay' },
     Fri: { name: 'Speaking (IELTS)', cmd: '/ielts' },
     Sat: { name: 'Xatolar ustida ish + takror', cmd: '/xato' },
@@ -148,11 +148,11 @@ ${FORMAT}`,
     }
 
     // Yangi so'zlarni bazaga yozish — ERTAGA takrorga chiqadi
-    async function addWords(chatId, words) {
+    async function addWords(chatId, words, type = 'word') {
         if (!supabase || !words?.length) return 0;
         const rows = words.map((w) => ({
             chat_id: chatId, word: w.word, meaning: w.meaning,
-            example: w.example || null, box: 1, next_review: addDays(1),
+            example: w.example || null, box: 1, next_review: addDays(1), type,
         }));
         await supabase.from('eng_vocab').upsert(rows, { onConflict: 'chat_id,word' });
         return rows.length;
@@ -1048,6 +1048,271 @@ ${FORMAT}`
         }
     });
 
+    // ==================== /chunk — SO'Z BIRIKMALARI ====================
+    bot.command('chunk', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const msg = await ctx.reply("🧱 Birikmalar tanlanyapti...");
+
+        try {
+            const p = await getProfile(ctx.chat.id);
+            const { data: existing } = await supabase.from('eng_vocab')
+                .select('word').eq('chat_id', ctx.chat.id).eq('type', 'chunk').limit(300);
+            const known = (existing || []).map((r) => r.word).join('; ');
+
+            const gen = await plain().generateContent(
+                `${p.level} darajadagi o'zbek o'quvchisi uchun 8 ta INGLIZCHA SO'Z BIRIKMASI (chunk / collocation) tanla.
+
+MUHIM: yakka so'z EMAS, balki birga ishlatiladigan bo'laklar:
+- fe'l + ot: "make a decision", "take a photo", "have breakfast"
+- sifat + ot: "heavy rain", "strong coffee"
+- turg'un iboralar: "by the way", "as soon as possible"
+
+Allaqachon o'rganilgan, QAYTARMA: ${known || "yo'q"}
+
+Har biri uchun: birikma, o'zbekcha ma'nosi, misol gap (o'quvchi SMM menejer, o'quv markazida ishlaydi — misollarni shu hayotga bog'la).
+
+FAQAT JSON:
+[{"word":"make a decision","meaning":"qaror qabul qilmoq","example":"We make a decision every Monday."}]`
+            );
+
+            const chunks = parseJson(gen.response.text());
+            if (!Array.isArray(chunks) || !chunks.length) throw new Error('Birikmalar olinmadi');
+
+            await addWords(ctx.chat.id, chunks, 'chunk');
+            await logActivity(ctx.chat.id, 'chunk_new', chunks.length);
+
+            const list = chunks.map((c, i) =>
+                `${i + 1}. **${c.word}** — ${c.meaning}\n   *${c.example || ''}*`).join('\n\n');
+
+            sessions.set(ctx.chat.id, { type: 'chunk_use', data: chunks });
+            await setMode(ctx.chat.id, 'chunk_use');
+
+            await sendFormatted(ctx, msg.message_id,
+                `🧱 **8 ta so'z birikmasi**\n\n${list}\n\n` +
+                `✍️ **Topshiriq:** shu birikmalardan **5 tasini** tanlab, har biri bilan o'z hayotingizdan gap tuzing. ` +
+                `Bitta xabarda yuboring.\n\n⏰ Ertaga /word da so'raladi.`);
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeChunkUse(ctx, answer) {
+        const chunks = await guardSession(ctx, 'chunk_use');
+        if (!chunks) return;
+
+        const msg = await ctx.reply('📝 Tekshirilyapti...');
+        try {
+            const list = chunks.map((c) => `${c.word} = ${c.meaning}`).join('\n');
+            const gen = await plain().generateContent(
+                `Birikmalar:\n${list}\n\nO'quvchi shulardan foydalanib gap tuzdi:\n${answer}\n\n` +
+                `Har gapni tekshir:\n- Birikma TO'G'RI shaklda ishlatilganmi (so'z tartibi, predlog, artikl)\n` +
+                `- Grammatik xatolar\n- Tabiiy eshitiladimi\n\n` +
+                `Har gap uchun: ✅/❌ + tuzatilgan variant + qisqa o'zbekcha izoh. ` +
+                `Oxirida umumiy baho va 1 ta maslahat.\n${MISTAKE_SPEC}\n\n${FORMAT}`
+            );
+
+            const out = gen.response.text();
+            const mistakes = await recordMistakes(ctx.chat.id, out);
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'chunk_use');
+
+            await sendFormatted(ctx, msg.message_id,
+                `${stripMeta(out)}${mistakes ? `\n\n📝 ${mistakes} ta xato jurnaliga yozildi.` : ''}`);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /drill — TEZ TARJIMA ====================
+    bot.command('drill', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const msg = await ctx.reply('⚡ Drill tayyorlanyapti...');
+
+        try {
+            const p = await getProfile(ctx.chat.id);
+            const topics = await getTopics(ctx.chat.id, 10);
+            const mistakes = await getTopMistakes(ctx.chat.id, 5);
+
+            const { data: vocab } = await supabase.from('eng_vocab')
+                .select('word, meaning').eq('chat_id', ctx.chat.id)
+                .gte('box', 2).limit(40);
+
+            const gen = await plain().generateContent(
+                `${p.level} darajadagi o'quvchi uchun TEZ TARJIMA drilli tuz.
+
+15 ta QISQA o'zbekcha gap yoz (har biri 4-8 so'z). O'quvchi ularni tez inglizchaga o'giradi.
+
+Gaplar shulardan tuzilsin:
+- O'tilgan mavzular: ${topics.map((t) => t.topic).join(', ') || 'to be, oddiy gaplar'}
+- Takrorlanuvchi xatolar (4 ta gap aynan shularga tegsin): ${mistakes.map((m) => m.topic).join(', ') || "yo'q"}
+- O'rganilgan so'zlar: ${(vocab || []).map((v) => v.word).slice(0, 25).join(', ') || 'oddiy so\'zlar'}
+
+Gaplar kundalik hayotdan bo'lsin (ish, o'quv markaz, oila, ovqat, telefon).
+Raqamlab yoz. Inglizcha javoblarni BERMA.
+
+Boshida bitta qator: "⏱ Sekundomerni yoqing — 15 gap uchun maqsad 5 daqiqa."
+
+${FORMAT}`
+            );
+
+            const q = gen.response.text();
+            sessions.set(ctx.chat.id, { type: 'drill', data: { questions: q, startedAt: Date.now() } });
+            await setMode(ctx.chat.id, 'drill');
+
+            await sendFormatted(ctx, msg.message_id,
+                `⚡ **Tez tarjima drilli**\n\n${q}\n\n` +
+                `Javoblarni bitta xabarda raqamlab yozing. Lug'atga qaramang — bilmasangiz "?" qo'ying.`);
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeDrill(ctx, answer) {
+        const d = await guardSession(ctx, 'drill');
+        if (!d) return;
+
+        const secs = Math.round((Date.now() - d.startedAt) / 1000);
+        const mins = Math.floor(secs / 60);
+        const msg = await ctx.reply(`📊 Tekshirilyapti... (${mins} daq ${secs % 60} soniya)`);
+
+        try {
+            const gen = await plain().generateContent(
+                `Topshiriq:\n${d.questions}\n\nO'quvchi tarjimalari:\n${answer}\n\n` +
+                `Har gapni tekshir: ✅/❌ + to'g'ri tarjima + xato bo'lsa qisqa o'zbekcha izoh.\n` +
+                `Bir nechta to'g'ri variant bo'lsa, o'quvchiniki ham to'g'ri bo'lsa ✅ qo'y.\n` +
+                `Oxirida **Natija: X/15** va eng ko'p qoqilgan 2 ta mavzu.\n${MISTAKE_SPEC}\n\n${FORMAT}`
+            );
+
+            const out = gen.response.text();
+            const score = parseInt((out.match(/Natija:\s*(\d+)\s*\/\s*15/i) || [])[1] || '0', 10);
+            const pct = Math.round((score / 15) * 100);
+            const mistakes = await recordMistakes(ctx.chat.id, out);
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'drill', pct, `${secs}s`);
+
+            const speed = secs <= 300 ? '🟢 Tezlik yaxshi' : secs <= 480 ? '🟡 Sekinroq — mashq kerak' : '🔴 Juda sekin — bu so\'zlar hali avtomatlashmagan';
+
+            await sendFormatted(ctx, msg.message_id,
+                `${stripMeta(out)}\n\n⏱ **Vaqt:** ${mins} daq ${secs % 60} soniya — ${speed}\n` +
+                `${mistakes ? `📝 ${mistakes} ta xato jurnaliga yozildi.` : ''}`);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /talaffuz — TALAFFUZ ====================
+    // O'zbek tilida yo'q yoki chalkashadigan tovushlar — tartib bilan
+    const SOUNDS = [
+        { id: 'th-voiceless', name: '/θ/ — think, three, month', hint: "til uchi tishlar orasida, ovozsiz. O'zbekcha 's' yoki 't' EMAS" },
+        { id: 'th-voiced', name: '/ð/ — this, that, weather', hint: "xuddi shunday, lekin ovoz bilan. 'z' yoki 'd' EMAS" },
+        { id: 'w-v', name: '/w/ va /v/ — west vs vest', hint: "w — lablar dumaloq, tishlar tegmaydi. v — pastki lab yuqori tishga tegadi" },
+        { id: 'long-short-i', name: '/iː/ va /ɪ/ — sheep vs ship', hint: 'uzun va qisqa i. Ma\'no butunlay o\'zgaradi' },
+        { id: 'ae', name: '/æ/ — cat, bad, man', hint: "o'zbekcha 'a' va 'e' orasidagi tovush, og'iz keng ochiladi" },
+        { id: 'schwa', name: '/ə/ — about, teacher, banana', hint: "urg'usiz bo'g'indagi 'bo'sh' tovush. Ingliz tilidagi eng ko'p tovush" },
+        { id: 'ed-endings', name: '-ed oxiri — worked /t/, played /d/, wanted /ɪd/', hint: 'uchta xil o\'qiladi, oldingi tovushga qarab' },
+        { id: 's-endings', name: '-s oxiri — cats /s/, dogs /z/, boxes /ɪz/', hint: 'ko\'plik va 3-shaxs uchun uchta variant' },
+        { id: 'r-sound', name: '/r/ — red, three, car', hint: "til orqaga tortiladi, tanglayga TEGMAYDI. O'zbekcha titroq 'r' EMAS" },
+        { id: 'word-stress', name: "So'z urg'usi — PHOtograph / phoTOgrapher", hint: "urg'u noto'g'ri tushsa, so'z tanilmaydi" },
+        { id: 'sentence-stress', name: 'Gap urg\'usi — muhim so\'zlar kuchli', hint: 'ot, fe\'l, sifat kuchli; artikl, predlog zaif' },
+        { id: 'linking', name: 'Bog\'lanish — "an apple" → "a-napple"', hint: 'tabiiy nutqda so\'zlar bir-biriga ulanadi' },
+    ];
+
+    bot.command('talaffuz', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+
+        try {
+            const { count } = await supabase.from('eng_log')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', ctx.chat.id).eq('activity', 'pronunciation');
+
+            const s = SOUNDS[(count || 0) % SOUNDS.length];
+            const msg = await ctx.reply('🗣 Talaffuz mashqi tayyorlanyapti...');
+
+            const gen = await plain().generateContent(
+                `Talaffuz darsi tuz. Bugungi tovush: ${s.name}
+Yo'riqnoma: ${s.hint}
+
+Javob tuzilishi:
+1. 🗣 **Tovush** — nomi.
+2. 👄 **Qanday chiqariladi** — og'iz, til, lablar holati. O'zbekcha, 3-4 jumla. O'zbek tilidagi qaysi tovushga o'xshaydi va nimasi bilan farq qiladi.
+3. ⚠️ **O'zbeklar qiladigan xato** — aniq ayt.
+4. 🔤 **10 ta so'z** — shu tovush bilan, o'zbekcha ma'nosi bilan.
+5. 🎯 **3 ta gap** — shu tovush ko'p uchraydigan qiyin gaplar (tongue twister uslubida).
+
+Qisqa yoz.
+
+${FORMAT}`
+            );
+
+            sessions.set(ctx.chat.id, { type: 'pronunciation', data: { sound: s.name, text: gen.response.text() } });
+            await setMode(ctx.chat.id, 'pronunciation');
+
+            await sendFormatted(ctx, msg.message_id,
+                `${gen.response.text()}\n\n🎤 **10 ta so'z va 3 ta gapni ovozli xabarda o'qing** — tekshiraman.\nBekor qilish: /stop`);
+        } catch (e) {
+            ctx.reply(`❌ Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradePronunciation(ctx, voicePart) {
+        const d = await guardSession(ctx, 'pronunciation');
+        if (!d) return;
+
+        if (!voicePart) {
+            return ctx.reply('🎤 Talaffuzni tekshirish uchun **ovozli xabar** kerak. Matn bilan bo\'lmaydi.');
+        }
+
+        const msg = await ctx.reply('🎧 Talaffuz tahlil qilinyapti...');
+        try {
+            const gen = await plain().generateContent({
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        {
+                            text: `O'quvchi (o'zbek, daraja A1) quyidagi talaffuz mashqini ovozli o'qidi.
+
+Mashq mavzusi: ${d.sound}
+Material:\n${d.text}
+
+Ovozni tinglab bahola:
+1. 🎯 **Umumiy baho** — 1-10.
+2. ✅ **To'g'ri chiqqan** — qaysi so'zlarda tovush to'g'ri.
+3. ❌ **Xato chiqqan** — qaysi so'zlarda, nima deb talaffuz qilingan, qanday bo'lishi kerak.
+4. 👄 **Nima qilish kerak** — og'iz/til holatini tuzatish bo'yicha 2-3 aniq maslahat.
+5. 🔁 **Ertaga takrorlash uchun** — eng qiyin chiqqan 3 ta so'z.
+
+Halol bahola, oshirib yuborma. Izoh o'zbekcha.
+
+${FORMAT}`,
+                        },
+                        voicePart,
+                    ],
+                }],
+            });
+
+            const out = gen.response.text();
+            const score = parseFloat((out.match(/(\d+(?:\.\d)?)\s*(?:\/\s*10|ball)/i) || [])[1]) || null;
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'pronunciation', score, d.sound);
+
+            await sendFormatted(ctx, msg.message_id, out);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    }
+
     // ==================== /progress ====================
     bot.command('progress', async (ctx) => {
         if (!supabase) return ctx.reply(noDb());
@@ -1081,6 +1346,11 @@ ${FORMAT}`
                 : "hali yo'q";
             const { count: topicCount } = await supabase.from('eng_topics')
                 .select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id);
+            const { count: chunkCount } = await supabase.from('eng_vocab')
+                .select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id).eq('type', 'chunk');
+
+            const drills = (logs || []).filter((l) => l.activity === 'drill').slice(0, 3).map((l) => l.score + '%').join(' → ') || "hali yo'q";
+            const pron = (logs || []).filter((l) => l.activity === 'pronunciation').slice(0, 3).map((l) => l.score).join(' → ') || "hali yo'q";
 
             ctx.reply(
                 `📈 Statistika, Humoyun\n\n` +
@@ -1089,8 +1359,11 @@ ${FORMAT}`
                 `🎓 Daraja: ${p.level}\n` +
                 `📖 O'tilgan mavzular: ${topicCount || 0} ta\n` +
                 `📚 So'zlar: ${total} ta (mustahkam: ${learned})\n` +
+                `🧱 Birikmalar: ${chunkCount || 0} ta\n` +
                 `🔁 Bugun takrorga: ${due} ta\n` +
                 `🎯 So'z testlari o'rtachasi: ${vocabAvg}\n` +
+                `⚡ Drill natijalari: ${drills}\n` +
+                `🗣 Talaffuz ballari: ${pron}\n` +
                 `✍️ Writing ballari: ${bands}\n` +
                 `🎤 Speaking ballari: ${speakBands}\n` +
                 `❌ Eng ko'p xatolar: ${topMistakes}\n` +
@@ -1125,6 +1398,12 @@ ${FORMAT}`
         if (p.mode === 'level_test' && txt) return gradeLevelTest(ctx, txt);
         if (p.mode === 'read_test' && txt) return gradeRead(ctx, txt);
         if (p.mode === 'essay' && txt) return gradeEssay(ctx, txt);
+        if (p.mode === 'chunk_use' && txt) return gradeChunkUse(ctx, txt);
+        if (p.mode === 'drill' && txt) return gradeDrill(ctx, txt);
+
+        if (p.mode === 'pronunciation') {
+            return gradePronunciation(ctx, await getVoicePart());
+        }
 
         if (p.mode === 'listen_test' && (txt || ctx.message.voice)) {
             return gradeListen(ctx, txt, await getVoicePart());
