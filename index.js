@@ -297,9 +297,26 @@ async function uploadMedia(buffer, ext, contentType) {
 }
 
 // ==================== OVOZ SINTEZI ====================
-const TTS_VOICE = process.env.TTS_VOICE || 'Kore';
+// Gemini TTS ovozlari
+const VOICES = {
+    // Erkak
+    Charon: 'erkak · chuqur, xotirjam',
+    Puck: 'erkak · jonli, tez',
+    Fenrir: "erkak · qat'iy, kuchli",
+    Orus: 'erkak · ravon, neytral',
+    Enceladus: 'erkak · yumshoq, past',
+    Iapetus: 'erkak · aniq, quruq',
+    Algieba: 'erkak · iliq',
+    // Ayol
+    Kore: 'ayol · aniq, rasmiy',
+    Zephyr: 'ayol · yengil',
+    Leda: 'ayol · yosh',
+    Aoede: 'ayol · iliq',
+};
+
+let currentVoice = process.env.TTS_VOICE || 'Charon';
 const VOICE_REPLY = process.env.VOICE_REPLY !== 'false';
-const VOICE_MAX_CHARS = parseInt(process.env.VOICE_MAX_CHARS || '1200', 10);
+const VOICE_MAX_CHARS = parseInt(process.env.VOICE_MAX_CHARS || '1500', 10);
 
 // PCM → MP3 (sof JS, ffmpeg kerak emas). Telegram sendAudio faqat MP3/M4A qabul qiladi.
 let lamejsCache = null;
@@ -357,7 +374,7 @@ async function ttsOnce(modelName, text) {
             contents: [{ parts: [{ text }] }],
             generationConfig: {
                 responseModalities: ['AUDIO'],
-                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: TTS_VOICE } } },
+                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentVoice } } },
             },
         }),
     });
@@ -467,8 +484,28 @@ let lastMediaError = null;
 async function sendVoiceReply(ctx, rawText) {
     if (!VOICE_REPLY) return false;
 
-    const speech = textForSpeech(rawText);
-    if (!speech || speech.length > VOICE_MAX_CHARS) return false;
+    let speech = textForSpeech(rawText);
+    if (!speech) return false;
+
+    // Javob uzun bo'lsa — ovoz uchun qisqa xulosa tayyorlaymiz
+    if (speech.length > VOICE_MAX_CHARS) {
+        try {
+            const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
+                `Quyidagi javobni OVOZ uchun qisqartir. 700 belgidan oshmasin.\n\n` +
+                `Qoidalar:\n- Eng muhim xulosani va aniq raqamlarni saqla\n` +
+                `- Ro'yxat bo'lsa, eng muhim 3 tasini ayt\n` +
+                `- Oxirida "batafsili matnda" deb qo'sh\n` +
+                `- Belgi, emoji, formatlash ishlatma — sof gapiriladigan matn\n\n` +
+                `Javob:\n${rawText.slice(0, 6000)}`
+            );
+            const short = textForSpeech(gen.response.text());
+            if (short && short.length <= VOICE_MAX_CHARS) speech = short;
+            else return false;
+        } catch (e) {
+            console.warn('Ovozli xulosa tayyorlanmadi:', e.message);
+            return false;
+        }
+    }
 
     try {
         const audio = await textToSpeech(speech);
@@ -516,7 +553,7 @@ bot.command('status', async (ctx) => {
         `💾 Doimiy xotira: ${supabase ? 'yoqilgan (Supabase)' : "o'chirilgan (RAM)"}\n` +
         `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}\n` +
         `🔊 Ovozli javob: ${VOICE_REPLY && supabase ? 'yoqilgan' : "o'chirilgan"}\n` +
-        `🎙 TTS modellari: ${TTS_MODELS.join(', ')}\n` +
+        `🎙 Ovoz: ${currentVoice} (${VOICES[currentVoice] || ""})\n` +
         `📦 Media ombori: ${supabase ? BUCKET : "yo'q"}\n` +
         `🧮 Hisob kodi ko'rinishi: ${SHOW_CODE ? 'yoqilgan' : "o'chirilgan"}`
     );
@@ -638,6 +675,68 @@ Javobda albatta shu bo'limlar bo'lsin:
         console.error('Harid tahlili xatosi:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
             `Xatolik: ${(error.message || "noma'lum").slice(0, 300)}`);
+    }
+});
+
+// ==================== /ovozi — ovozni tanlash ====================
+bot.command('ovozi', async (ctx) => {
+    const arg = ctx.message.text.replace(/^\/ovozi(@\S+)?\s*/i, '').trim();
+
+    if (!arg) {
+        const list = Object.entries(VOICES)
+            .map(([n, d]) => `${n === currentVoice ? '👉' : '  '} <b>${n}</b> — ${d}`).join('\n');
+        return ctx.reply(
+            `🎙 <b>Hozirgi ovoz:</b> ${currentVoice}\n\n${list}\n\n` +
+            `Almashtirish: /ovozi Puck\n` +
+            `Sinash: /ovozi sinov — barcha erkak ovozlarini eshitasiz\n\n` +
+            `<i>Doimiy qilish uchun Render'da TTS_VOICE o'zgaruvchisiga yozing.</i>`,
+            { parse_mode: 'HTML' }
+        );
+    }
+
+    // Barcha erkak ovozlarini sinab ko'rish
+    if (/^sinov$/i.test(arg)) {
+        const males = Object.keys(VOICES).filter((v) => VOICES[v].startsWith('erkak'));
+        const msg = await ctx.reply(`${males.length} ta erkak ovozi tayyorlanyapti...`);
+        const saved = currentVoice;
+
+        for (const v of males) {
+            try {
+                currentVoice = v;
+                const audio = await textToSpeech(`Salom Humoyun. Men JARVIS. Bu ${v} ovozi.`);
+                const mp3 = await pcmToMp3(audio.pcm, audio.rate);
+                const url = await uploadMedia(mp3, 'mp3', 'audio/mpeg');
+                await ctx.replyWithAudio(url, { title: v, performer: VOICES[v] });
+            } catch (e) {
+                await ctx.reply(`${v} — xato: ${e.message}`);
+            }
+        }
+
+        currentVoice = saved;
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
+            `Tanlash: /ovozi <nom>\nHozirgi: ${currentVoice}`);
+        return;
+    }
+
+    // Ovozni almashtirish
+    const found = Object.keys(VOICES).find((v) => v.toLowerCase() === arg.toLowerCase());
+    if (!found) {
+        return ctx.reply(`"${arg}" topilmadi.\n\nMavjudlari: ${Object.keys(VOICES).join(', ')}`);
+    }
+
+    currentVoice = found;
+    const msg = await ctx.reply(`Ovoz o'zgartirildi: ${found} (${VOICES[found]})\nSinov tayyorlanyapti...`);
+
+    try {
+        const audio = await textToSpeech(`Salom Humoyun. Endi men shu ovozda gapiraman.`);
+        const mp3 = await pcmToMp3(audio.pcm, audio.rate);
+        const url = await uploadMedia(mp3, 'mp3', 'audio/mpeg');
+        await ctx.replyWithAudio(url, { title: found });
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
+            `🎙 Ovoz: ${found} — ${VOICES[found]}\n\nDoimiy qilish: Render'da TTS_VOICE = ${found}`);
+    } catch (e) {
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
+            `Ovoz ${found} ga o'zgartirildi, lekin sinov yuborilmadi: ${e.message}`);
     }
 });
 
@@ -870,6 +969,7 @@ const COMMANDS = [
     { command: 'harid', description: '🛒 Tovar tahlili' },
     { command: 'prompt', description: '🎬 AI vositalar uchun prompt' },
     { command: 'ovoz', description: '🔊 Matnni ovozga aylantirish' },
+    { command: 'ovozi', description: '🎙 Ovozni tanlash' },
     { command: 'fellar', description: "📘 Noto'g'ri fe'llar" },
     { command: 'hafta', description: '📊 Haftalik hisobot' },
     { command: 'stop', description: '🛑 Rejimdan chiqish' },
