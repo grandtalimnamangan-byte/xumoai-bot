@@ -30,12 +30,12 @@ To'liq mock testlar, vaqt boshqaruvi, xatolar ustida ish, murakkab tuzilmalar, r
 // Haftalik aylanma — har kuni so'z + grammatika, ustiga kunlik fokus
 const WEEK_FOCUS = {
     Mon: { name: 'Grammatika + birikmalar', cmd: '/chunk' },
-    Tue: { name: 'Listening + tez tarjima', cmd: '/drill' },
+    Tue: { name: "Listening + noto'g'ri fe'llar", cmd: '/fellar' },
     Wed: { name: 'Reading + talaffuz', cmd: '/talaffuz' },
     Thu: { name: 'Writing / Essay', cmd: '/essay' },
     Fri: { name: 'Speaking (IELTS)', cmd: '/ielts' },
     Sat: { name: 'Xatolar ustida ish + takror', cmd: '/xato' },
-    Sun: { name: 'Yengil takror + film', cmd: '/word' },
+    Sun: { name: 'Haftalik hisobot + yengil takror', cmd: '/hafta' },
 };
 
 const FORMAT = `FORMATLASH: faqat **qalin**, *kursiv*, \`kod\` va "-" ro'yxatlardan foydalan. ### sarlavha, --- chiziq, jadval va > sitatadan FOYDALANMA. Bo'lim kerak bo'lsa emoji + **qalin sarlavha**.`;
@@ -363,6 +363,16 @@ mavzu qisqa va aniq bo'lsin, masalan: "3rd person -s", "Past Simple irregular", 
 
             const newDay = p.day_number + 1;
             const streak = (p.last_day === addDays(-1)) ? p.streak + 1 : 1;
+            const bestStreak = Math.max(p.best_streak || 0, streak);
+
+            // Uzilish bo'lganmi? 3+ kun tanaffusdan keyin tiklanish rejimi
+            let recoveryUntil = p.recovery_until || null;
+            let gapDays = 0;
+            if (p.last_day) {
+                gapDays = Math.round((new Date(today()) - new Date(p.last_day)) / 86400000);
+                if (gapDays >= 3) recoveryUntil = addDays(3);
+            }
+            const inRecovery = recoveryUntil && recoveryUntil >= today();
             const wd = weekday();
             const weak = (p.weak_points || []).join(', ') || 'hali aniqlanmagan';
 
@@ -389,6 +399,7 @@ mavzu qisqa va aniq bo'lsin, masalan: "3rd person -s", "Past Simple irregular", 
 - Streak: ${streak} kun
 - Bugungi haftalik fokus: ${WEEK_FOCUS[wd].name}
 - Zaif nuqtalar: ${weak}
+${inRecovery ? `\n⚠️ TIKLANISH REJIMI: Humoyun ${gapDays} kun tanaffusdan keyin qaytdi. Bugungi dars YENGIL bo'lsin — 5-6 ta mashq, nazariya qisqa, mavzu oson. Uni koyima, qaytgani muhim. Bir jumlada qaytganini qadrla, keyin darsga o't.\n` : ''}
 
 ALLAQACHON O'TILGAN MAVZULAR (bularni QAYTA berma, yangi mavzu ol):
 ${coveredList}
@@ -426,14 +437,18 @@ Oxirida WORDS= qatori va alohida qatorda TOPIC=<mavzu nomi> yoz.`
             await saveProfile(ctx.chat.id, {
                 level: p.level, day_number: newDay, streak, last_day: today(),
                 weak_points: p.weak_points, mode: 'lesson',
+                best_streak: bestStreak, recovery_until: recoveryUntil,
             });
             await logActivity(ctx.chat.id, 'lesson', null, `kun ${newDay}`);
 
             const footer = `\n\n📝 ${added} ta yangi so'z bazaga yozildi — **ertaga** /word da so'raladi.` +
                 (WEEK_FOCUS[wd].cmd ? `\n🎯 Bugungi fokus: ${WEEK_FOCUS[wd].name} → ${WEEK_FOCUS[wd].cmd}` : '');
 
-            await sendFormatted(ctx, msg.message_id,
-                `🔥 **Kun ${newDay}** · Streak: ${streak} · Daraja: ${p.level}\n\n${lesson}${footer}`);
+            const header = inRecovery
+                ? `🌱 **Kun ${newDay}** · Tiklanish rejimi · Eng uzun streak: ${bestStreak} kun`
+                : `🔥 **Kun ${newDay}** · Streak: ${streak}${bestStreak > streak ? ` (rekord: ${bestStreak})` : ''} · Daraja: ${p.level}`;
+
+            await sendFormatted(ctx, msg.message_id, `${header}\n\n${lesson}${footer}`);
 
         } catch (e) {
             console.error('Dars xatosi:', e);
@@ -487,10 +502,35 @@ FAQAT JSON massiv qaytar:
 
         const msg = await ctx.reply("🔁 Takror uchun so'zlar olinyapti...");
         try {
+            const p = await getProfile(ctx.chat.id);
+            const inRecovery = p.recovery_until && p.recovery_until >= today();
+            const CAP = inRecovery ? 8 : 12;   // bir seansda maksimum
+
+            // Muddati kelganlarning umumiy soni
+            const { count: dueTotal } = await supabase.from('eng_vocab')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', ctx.chat.id).lte('next_review', today());
+
+            // Qoldiq to'planib qolgan bo'lsa — ortiqchasini keyingi kunlarga yoyamiz
+            if (dueTotal > CAP * 2) {
+                const { data: overflow } = await supabase.from('eng_vocab')
+                    .select('id').eq('chat_id', ctx.chat.id).lte('next_review', today())
+                    .order('next_review').range(CAP, Math.min(dueTotal - 1, CAP + 199));
+
+                let i = 0;
+                for (const row of overflow || []) {
+                    const push = 1 + Math.floor(i / CAP);   // har CAP tasini bir kun keyinga
+                    await supabase.from('eng_vocab')
+                        .update({ next_review: addDays(push) }).eq('id', row.id);
+                    i++;
+                }
+                console.log(`Qoldiq yoyildi: ${i} ta so'z keyingi kunlarga surildi.`);
+            }
+
             const { data: due } = await supabase
                 .from('eng_vocab').select('*')
                 .eq('chat_id', ctx.chat.id).lte('next_review', today())
-                .order('next_review').limit(10);
+                .order('next_review').limit(CAP);
 
             if (!due?.length) {
                 const { count } = await supabase.from('eng_vocab')
@@ -514,11 +554,17 @@ FAQAT JSON massiv qaytar:
             sessions.set(ctx.chat.id, { type: 'word_test', data: tasks });
             await setMode(ctx.chat.id, 'word_test');
 
+            const queued = Math.max(0, (dueTotal || 0) - tasks.length);
+            const recoveryNote = inRecovery
+                ? `🌱 Tiklanish rejimi — yuklama yengillashtirildi.\n\n` : '';
+            const queueNote = queued > 0
+                ? `\n\n📦 Yana ${queued} ta so'z navbatda — keyingi kunlarga taqsimlandi. Hammasini birdan qilish shart emas.` : '';
+
             await sendFormatted(ctx, msg.message_id,
-                `🔁 **So'z takrori — ${tasks.length} ta**\n\n` +
+                `${recoveryNote}🔁 **So'z takrori — ${tasks.length} ta**\n\n` +
                 `Bitta xabarda, raqamlab javob bering:\n\n` +
                 tasks.map((t, i) => `${i + 1}. ${t.q}`).join('\n') +
-                `\n\n💡 Bilmasangiz "?" qo'ying — taxmin qilmang.`);
+                `\n\n💡 Bilmasangiz "?" qo'ying — taxmin qilmang.${queueNote}`);
         } catch (e) {
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
         }
@@ -1313,6 +1359,233 @@ ${FORMAT}`,
         }
     }
 
+    // ==================== /fellar — NOTO'G'RI FE'LLAR ====================
+    // Tasodifiy emas, NAQSH guruhlari bo'yicha — miya bir xil o'zgarishni birga eslab qoladi
+    const VERB_GROUPS = [
+        {
+            name: 'Uchalasi bir xil',
+            rule: "Hech narsa o'zgarmaydi — eng oson guruh",
+            verbs: [['cut', 'cut', 'cut', 'kesmoq'], ['put', 'put', 'put', "qo'ymoq"], ['let', 'let', 'let', "ruxsat bermoq"],
+                ['hit', 'hit', 'hit', 'urmoq'], ['cost', 'cost', 'cost', 'turmoq (narx)'], ['shut', 'shut', 'shut', 'yopmoq'],
+                ['hurt', 'hurt', 'hurt', "og'ritmoq"], ['set', 'set', 'set', "o'rnatmoq"]],
+        },
+        {
+            name: '-ought / -aught',
+            rule: "2 va 3-shakl bir xil, oxiri -ought yoki -aught",
+            verbs: [['buy', 'bought', 'bought', 'sotib olmoq'], ['bring', 'brought', 'brought', 'olib kelmoq'],
+                ['think', 'thought', 'thought', "o'ylamoq"], ['teach', 'taught', 'taught', "o'rgatmoq"],
+                ['catch', 'caught', 'caught', 'ushlamoq'], ['fight', 'fought', 'fought', 'urishmoq']],
+        },
+        {
+            name: '-t bilan tugaydi',
+            rule: '2 va 3-shakl bir xil, unli qisqaradi',
+            verbs: [['sleep', 'slept', 'slept', 'uxlamoq'], ['keep', 'kept', 'kept', 'saqlamoq'],
+                ['feel', 'felt', 'felt', 'his qilmoq'], ['leave', 'left', 'left', 'ketmoq'],
+                ['mean', 'meant', 'meant', 'anglatmoq'], ['build', 'built', 'built', 'qurmoq'],
+                ['send', 'sent', 'sent', 'yubormoq'], ['spend', 'spent', 'spent', 'sarflamoq']],
+        },
+        {
+            name: 'i → a → u',
+            rule: "Unli uch marta o'zgaradi: i, a, u",
+            verbs: [['drink', 'drank', 'drunk', 'ichmoq'], ['sing', 'sang', 'sung', 'kuylamoq'],
+                ['swim', 'swam', 'swum', 'suzmoq'], ['begin', 'began', 'begun', 'boshlamoq'],
+                ['ring', 'rang', 'rung', 'jiringlamoq'], ['sink', 'sank', 'sunk', "cho'kmoq"]],
+        },
+        {
+            name: 'o → oke → oken',
+            rule: '3-shakl -en bilan tugaydi',
+            verbs: [['speak', 'spoke', 'spoken', 'gapirmoq'], ['break', 'broke', 'broken', 'sindirmoq'],
+                ['choose', 'chose', 'chosen', 'tanlamoq'], ['freeze', 'froze', 'frozen', 'muzlatmoq'],
+                ['steal', 'stole', 'stolen', "o'g'irlamoq"], ['wake', 'woke', 'woken', "uyg'onmoq"]],
+        },
+        {
+            name: '-ew → -own',
+            rule: "2-shakl -ew, 3-shakl -own",
+            verbs: [['know', 'knew', 'known', 'bilmoq'], ['grow', 'grew', 'grown', "o'smoq"],
+                ['throw', 'threw', 'thrown', 'otmoq'], ['blow', 'blew', 'blown', 'puflamoq'],
+                ['fly', 'flew', 'flown', 'uchmoq'], ['draw', 'drew', 'drawn', 'chizmoq']],
+        },
+        {
+            name: 'i → o → i(+en)',
+            rule: "3-shakl 1-shaklga qaytadi, -en qo'shiladi",
+            verbs: [['drive', 'drove', 'driven', 'haydamoq'], ['write', 'wrote', 'written', 'yozmoq'],
+                ['ride', 'rode', 'ridden', 'minmoq'], ['rise', 'rose', 'risen', "ko'tarilmoq"]],
+        },
+        {
+            name: 'Eng kerakli, naqshsiz',
+            rule: "Naqsh yo'q — yodlash kerak, lekin eng ko'p ishlatiladi",
+            verbs: [['go', 'went', 'gone', 'bormoq'], ['be', 'was/were', 'been', "bo'lmoq"],
+                ['do', 'did', 'done', 'qilmoq'], ['have', 'had', 'had', 'ega bo\'lmoq'],
+                ['see', 'saw', 'seen', "ko'rmoq"], ['eat', 'ate', 'eaten', 'yemoq'],
+                ['take', 'took', 'taken', 'olmoq'], ['come', 'came', 'come', 'kelmoq'],
+                ['give', 'gave', 'given', 'bermoq'], ['get', 'got', 'got', 'olmoq']],
+        },
+    ];
+
+    bot.command('fellar', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+
+        try {
+            const { count } = await supabase.from('eng_log')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', ctx.chat.id).eq('activity', 'verbs');
+
+            const gi = (count || 0) % VERB_GROUPS.length;
+            const g = VERB_GROUPS[gi];
+            const msg = await ctx.reply("📘 Fe'llar guruhi tayyorlanyapti...");
+
+            // Fe'llarni so'z bazasiga qo'shamiz — takror tizimiga tushadi
+            await addWords(ctx.chat.id, g.verbs.map((v) => ({
+                word: `${v[0]} - ${v[1]} - ${v[2]}`,
+                meaning: v[3],
+                example: null,
+            })), 'verb');
+
+            const table = g.verbs.map((v, i) =>
+                `${i + 1}. **${v[0]}** → ${v[1]} → ${v[2]} — ${v[3]}`).join('\n');
+
+            const gen = await plain().generateContent(
+                `O'zbek o'quvchisi noto'g'ri fe'llarning "${g.name}" guruhini o'rganyapti.
+Qoida: ${g.rule}
+Fe'llar: ${g.verbs.map((v) => v.join('/')).join(', ')}
+
+Quyidagini tuz:
+1. 🧠 **Eslab qolish usuli** — bu guruhni yodda saqlash uchun 2-3 jumlalik amaliy maslahat. Naqshni ko'rsat.
+2. 🧩 **8 ta mashq** — gaplarda fe'lni to'g'ri shaklga qo'yish. Aralash: ba'zisi Past Simple (2-shakl), ba'zisi Present Perfect (3-shakl). Qavs ichida 1-shaklni ber.
+3. ✍️ **3 ta tarjima** — o'zbekchadan inglizchaga, shu fe'llar bilan.
+
+Javoblarni BERMA. Qisqa yoz.
+
+${FORMAT}`
+            );
+
+            sessions.set(ctx.chat.id, { type: 'verbs', data: { group: g.name, verbs: g.verbs, text: gen.response.text() } });
+            await setMode(ctx.chat.id, 'verbs');
+
+            await sendFormatted(ctx, msg.message_id,
+                `📘 **Noto'g'ri fe'llar — guruh ${gi + 1}/${VERB_GROUPS.length}: ${g.name}**\n` +
+                `_${g.rule}_\n\n${table}\n\n${gen.response.text()}\n\n` +
+                `📝 ${g.verbs.length} ta fe'l bazaga yozildi — ertaga /word da so'raladi.`);
+        } catch (e) {
+            ctx.reply(`❌ Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeVerbs(ctx, answer) {
+        const d = await guardSession(ctx, 'verbs');
+        if (!d) return;
+
+        const msg = await ctx.reply('📊 Tekshirilyapti...');
+        try {
+            const gen = await plain().generateContent(
+                `Guruh: ${d.group}\nFe'llar: ${d.verbs.map((v) => v.join('/')).join(', ')}\n\n` +
+                `Topshiriqlar:\n${d.text}\n\nO'quvchi javoblari:\n${answer}\n\n` +
+                `Har javobni tekshir: ✅/❌ + to'g'ri shakl + nega shu shakl kerakligi (o'zbekcha, qisqa).\n` +
+                `Past Simple va Present Perfect farqiga alohida e'tibor ber.\n` +
+                `Oxirida natija va qaysi fe'llarni qayta ko'rish kerakligini ayt.\n${MISTAKE_SPEC}\n\n${FORMAT}`
+            );
+
+            const out = gen.response.text();
+            const mistakes = await recordMistakes(ctx.chat.id, out);
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'verbs', null, d.group);
+
+            await sendFormatted(ctx, msg.message_id,
+                `${stripMeta(out)}${mistakes ? `\n\n📝 ${mistakes} ta xato jurnaliga yozildi.` : ''}\n\n` +
+                `Keyingi guruh: /fellar`);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== HAFTALIK HISOBOT ====================
+    async function buildWeeklyReport(chatId) {
+        const p = await getProfile(chatId);
+        const weekAgo = addDays(-7);
+
+        const { data: logs } = await supabase.from('eng_log')
+            .select('activity, score, day, created_at').eq('chat_id', chatId)
+            .gte('day', weekAgo).order('created_at', { ascending: false });
+
+        const L = logs || [];
+        const activeDays = new Set(L.map((l) => l.day)).size;
+        const avg = (name) => {
+            const v = L.filter((l) => l.activity === name && l.score != null).map((l) => l.score);
+            return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
+        };
+
+        const lessons = L.filter((l) => l.activity === 'lesson').length;
+        const vocabAvg = avg('vocab_test');
+        const drillAvg = avg('drill');
+        const pronAvg = avg('pronunciation');
+        const bandVals = L.filter((l) => ['essay', 'writing', 'speaking'].includes(l.activity) && l.score != null);
+        const bandAvg = bandVals.length
+            ? (bandVals.reduce((a, b) => a + b.score, 0) / bandVals.length).toFixed(1) : null;
+
+        // Drill tezligi o'zgarishi
+        const drillTimes = L.filter((l) => l.activity === 'drill').map((l) => parseInt(l.notes, 10)).filter(Boolean);
+
+        const { count: vocabTotal } = await supabase.from('eng_vocab')
+            .select('*', { count: 'exact', head: true }).eq('chat_id', chatId);
+        const { count: vocabStrong } = await supabase.from('eng_vocab')
+            .select('*', { count: 'exact', head: true }).eq('chat_id', chatId).gte('box', 4);
+
+        const mistakes = await getTopMistakes(chatId, 5);
+
+        const lines = [
+            `📊 **Haftalik hisobot**`,
+            ``,
+            `📅 Faol kunlar: **${activeDays}/7**${activeDays >= 6 ? ' ✅' : activeDays >= 4 ? ' 🟡' : ' 🔴'}`,
+            `📚 Darslar: ${lessons} ta · Dastur kuni: ${p.day_number}/450`,
+            `🔥 Streak: ${p.streak}${p.best_streak > p.streak ? ` (rekord: ${p.best_streak})` : ''}`,
+            `🎓 Daraja: ${p.level}`,
+            ``,
+            `🔤 So'z bazasi: ${vocabTotal || 0} ta (mustahkam: ${vocabStrong || 0})`,
+            vocabAvg != null ? `🎯 So'z testlari: ${vocabAvg}%` : null,
+            drillAvg != null ? `⚡ Drill: ${drillAvg}%${drillTimes.length >= 2 ? ` · vaqt ${drillTimes[drillTimes.length - 1]}s → ${drillTimes[0]}s` : ''}` : null,
+            pronAvg != null ? `🗣 Talaffuz: ${pronAvg}/10` : null,
+            bandAvg != null ? `📝 O'rtacha band: ${bandAvg}` : null,
+        ].filter(Boolean);
+
+        if (mistakes.length) {
+            lines.push('', `❌ **Eng ko'p takrorlangan xatolar:**`);
+            mistakes.forEach((m) => lines.push(`- ${m.topic} — ${m.count} marta`));
+        }
+
+        // Keyingi hafta fokusi — modeldan
+        try {
+            const gen = await plain().generateContent(
+                `O'quvchi haftalik natijasi:\n` +
+                `Faol kunlar: ${activeDays}/7, darslar: ${lessons}, daraja: ${p.level}, dastur kuni: ${p.day_number}\n` +
+                `So'z testlari: ${vocabAvg ?? '—'}%, drill: ${drillAvg ?? '—'}%, talaffuz: ${pronAvg ?? '—'}/10\n` +
+                `Eng ko'p xatolar: ${mistakes.map((m) => `${m.topic} (${m.count}x)`).join(', ') || "yo'q"}\n\n` +
+                `Shu ma'lumotga qarab yoz:\n` +
+                `1. 🎯 **Keyingi hafta fokusi** — 2-3 ta aniq nuqta.\n` +
+                `2. 💬 **Bir jumla xulosa** — halol. Yaxshi bo'lsa tan ol, yomon bo'lsa yumshatmasdan ayt.\n` +
+                `Qisqa yoz, 6 qatordan oshmasin.\n\n${FORMAT}`
+            );
+            lines.push('', gen.response.text());
+        } catch (e) {
+            console.warn('Haftalik fokus olinmadi:', e.message);
+        }
+
+        return lines.join('\n');
+    }
+
+    bot.command('hafta', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const msg = await ctx.reply('📊 Haftalik hisobot tayyorlanyapti...');
+        try {
+            await sendFormatted(ctx, msg.message_id, await buildWeeklyReport(ctx.chat.id));
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        }
+    });
+
     // ==================== /progress ====================
     bot.command('progress', async (ctx) => {
         if (!supabase) return ctx.reply(noDb());
@@ -1400,6 +1673,7 @@ ${FORMAT}`,
         if (p.mode === 'essay' && txt) return gradeEssay(ctx, txt);
         if (p.mode === 'chunk_use' && txt) return gradeChunkUse(ctx, txt);
         if (p.mode === 'drill' && txt) return gradeDrill(ctx, txt);
+        if (p.mode === 'verbs' && txt) return gradeVerbs(ctx, txt);
 
         if (p.mode === 'pronunciation') {
             return gradePronunciation(ctx, await getVoicePart());
@@ -1499,6 +1773,18 @@ ${FORMAT}`,
             await bot.telegram.sendMessage(myTelegramId,
                 `🌙 21:00 — kechki blok.\n\nBugungi fokus: ${f.name}${f.cmd ? `\n\n${f.cmd}` : ''}`);
         } catch (e) { console.error('Kechki eslatma:', e.message); }
+    }, tz);
+
+    // Yakshanba 20:00 — haftalik hisobot o'zi keladi
+    cron.schedule('0 20 * * 0', async () => {
+        try {
+            if (!supabase) return;
+            const report = await buildWeeklyReport(myTelegramId);
+            const chunks = report.match(/[\s\S]{1,3500}/g) || [report];
+            for (const c of chunks) {
+                await bot.telegram.sendMessage(myTelegramId, c).catch(() => {});
+            }
+        } catch (e) { console.error('Haftalik hisobot xatosi:', e.message); }
     }, tz);
 
     cron.schedule('30 22 * * 1-6', async () => {
