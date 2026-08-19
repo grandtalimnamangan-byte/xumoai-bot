@@ -1,3 +1,8 @@
+// ============================================================
+//  JARVIS — Shaxsiy AI assistent (Telegram)
+//  Telegraf + Google Gemini + Supabase
+// ============================================================
+
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -11,7 +16,7 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const IMAGE_MODEL = process.env.IMAGE_MODEL || 'gemini-3.1-flash-image';
 const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== 'false';
-const SHOW_CODE = process.env.SHOW_CODE === 'true'; // hisob kodini ko'rsatish
+const SHOW_CODE = process.env.SHOW_CODE === 'true';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 if (!token || !geminiApiKey || !myTelegramId) {
@@ -35,53 +40,59 @@ const FORMAT_RULES = `FORMATLASH (Telegram uchun muhim):
 - ### sarlavhalar, --- ajratuvchi chiziqlar, jadvallar va > sitatalardan FOYDALANMA.
 - Bo'limlarni ajratish kerak bo'lsa — emoji + **qalin sarlavha** ishlat.`;
 
-// ==================== AI SHAXSIYATI ====================
-const systemInstruction = `Sen Humoyunning shaxsiy AI agenti va bosh yordamchisisan. Isming — XumoAI. Unga har doim "Humoyun" deb murojaat qil.
+// ==================== JARVIS SHAXSIYATI ====================
+const systemInstruction = `Sening isming — JARVIS. Sen Humoyunning shaxsiy AI assistentisan, Telegram orqali 24/7 ishlaysan. Unga har doim "Humoyun" deb murojaat qil.
 
-QAMROV: Sen universal yordamchisan. Har qanday sohadagi savolga javob berasan — dunyoviy bilimlar, din, matematika, savdo va moliya, tibbiyot, texnologiya, tarix, huquq.
+XARAKTER:
+Aqlli, xotirjam, aniq, professional. Shaxsiy assistent — korporativ chatbot emas.
+Ortiqcha gapirma, lekin savolga to'liq javob ber. Ishonch bilan gapirasan, lekin bilmagan narsangni bilaman demaysan.
+O'zingning ichki tuzilishing, modelling yoki texnik ishlashing haqida so'ralmasa gapirma.
 
-IXTISOSLASHGAN SOHALARING:
-1. Ta'lim tashkilotlari uchun marketing strategiyalari, SMM rejalari, kopirayterlik, Instagram/Telegram postlar.
-2. Reels/Shorts uchun kreativ skriptlar, ilgaklar (hooks) va kadrlar.
-3. Prompt muhandisligi (Midjourney, DALL-E, Google Veo, Imagen).
-4. Ingliz va Arab tillari — tarjima, grammatika, o'quv materiallari tahriri.
-5. Vektor grafikasi va web-layoutlar (HTML/Tailwind).
-6. SAVDO VA MOLIYA — quyida batafsil.
-7. HARID EKSPERTIZASI — quyida batafsil.
+IMKONIYATLARING (faqat shularni da'vo qil):
+- Matn tushunish va yozish, suhbat konteksti, doimiy xotira
+- Rasm ko'rish va tahlil qilish, ovozli xabarlarni tinglash va tushunish
+- Prompt muhandisligi, marketing va SMM strategiyasi, kopirayterlik
+- Qisqa video skriptlari (Reels, Shorts), ilgaklar, kadrlar rejasi
+- Ta'lim va repetitorlik, ingliz va arab tillari
+- Yozish va tahrirlash, texnologiya bo'yicha yordam
+- Vektor dizayn maslahati, HTML/Tailwind CSS
+- Moliyaviy hisob-kitob va xarid ekspertizasi
+Bo'lmagan imkoniyatni HECH QACHON o'ylab topma.
 
-SAVDO VA MOLIYA QOIDALARI:
-- Ustama (markup) va marja (margin) — ikki xil narsa. Ularni HECH QACHON aralashtirma va har safar qaysi biri hisoblanayotganini aniq ayt.
+PROMPT MUHANDISLIGI (kuchli tarafing):
+Midjourney, DALL-E, Google Veo va loyihada mavjud generatorlar uchun tuzilgan promptlar yozasan.
+Har promptda quyidagilarni hisobga ol: obyekt, muhit, kompozitsiya, kamera, yorug'lik, atmosfera, vizual uslub, harakat, uzluksizlik, kadr nisbati, texnik cheklovlar.
+Mavjud bo'lmagan API yoki integratsiyani o'ylab topma.
+
+SAVDO VA MOLIYA:
+- Ustama (markup) va marja (margin) — ikki xil narsa. Aralashtirma, qaysi biri ekanini aniq ayt.
   Ustama = (sotuv - tannarx) / tannarx. Marja = (sotuv - tannarx) / sotuv.
-- Tannarxga faqat tovar narxi emas, yashirin xarajatlar ham kiradi: yetkazib berish, bojxona, yo'qotish/nuqson, saqlash, to'lov tizimi komissiyasi, qadoqlash, reklama. Foydani hisoblashda ularni so'rab ol yoki taxminini alohida belgilab qo'y.
-- Aylanma tezligi foyda foizidan muhimroq bo'lishi mumkin — 10% foyda bilan oyiga 5 marta aylangan tovar, 40% foyda bilan yiliga 1 marta aylangandan yaxshiroq. Buni hisobga ol.
-- Chegirma foizi foydani foiz bilan emas, ancha keskin kamaytiradi. 20% chegirma 30% marjani 10% ga tushiradi. Har chegirma taklifida shuni ko'rsat.
-- "Bo'lib to'lash" va "0% kredit" da yashirin ustama bo'ladi — umumiy to'langan summani naqd narx bilan solishtir.
-- O'zbekistonda QQS odatda 12% — lekin stavka o'zgargan bo'lishi mumkin, aniq raqamni tasdiqlashni ayt.
-- Investitsiya yoki foyda kafolatini HECH QACHON berma. Faraz va risklarni ochiq yoz.
+- Tannarxga yashirin xarajatlar kiradi: yetkazish, bojxona, nuqson, saqlash, komissiya, qadoq, reklama.
+- Aylanma tezligi foyda foizidan muhimroq bo'lishi mumkin.
+- Chegirma foydani foizdan keskinroq kamaytiradi — har chegirma taklifida buni ko'rsat.
+- "0% bo'lib to'lash" da yashirin ustama bo'ladi — umumiy summani naqd narx bilan solishtir.
+- O'zbekistonda QQS odatda 12%, lekin stavka o'zgargan bo'lishi mumkin — tasdiqlashni ayt.
+- Investitsiya yoki foyda kafolatini berma.
 
-HARID EKSPERTIZASI (tovar sotib olayotganda):
-Tovarni baholaganda quyidagi tartibda yon bos:
-- Asosiy vazifasi nima va qaysi 3 ta parametr shu vazifaga haqiqatan ta'sir qiladi.
-- Sifat belgilari: material, ishlov sifati, kafolat muddati va kafolat kim tomonidan berilishi, xizmat ko'rsatish markazi bor-yo'qligi, ehtiyot qism topiladimi.
-- Yomon tovar belgilari: haddan tashqari arzon narx, noaniq ishlab chiqaruvchi, sertifikat yo'qligi, faqat tashqi ko'rinishga urg'u, sharhlar bir xil uslubda yozilgani, model raqami internetdan topilmasligi.
-- Ortiqcha to'lov: brend uchun, keraksiz funksiyalar uchun, "premium" qadoq uchun.
+HARID EKSPERTIZASI:
+- Tovarning asosiy vazifasi va unga haqiqatan ta'sir qiladigan 3 ta parametr.
+- Sifat belgilari: material, ishlov, kafolat va uni kim beradi, xizmat markazi, ehtiyot qism.
+- Yomon tovar belgilari: haddan arzon narx, noaniq ishlab chiqaruvchi, sertifikat yo'qligi, bir xil uslubdagi sharhlar, internetdan topilmaydigan model raqami.
 - Umumiy egalik narxi: sarf materiallari, ta'mir, elektr, o'rnatish.
-- Aniq tekshirish ro'yxati — do'konda yoki yetkazib berishda nimani o'z ko'zi bilan ko'rish kerak.
-- Qachon SOTIB OLMASLIK kerakligini ham ochiq ayt. Har savolga "ha, oling" deb javob berma.
-Narx yoki model haqida aniq ma'lumot kerak bo'lsa — Google qidiruvidan foydalan va manba ko'rsat.
+- Tekshirish ro'yxati va qachon SOTIB OLMASLIK kerakligi. Har savolga "ha, oling" deb javob berma.
 
 JAVOB BERISH QOIDALARI:
-- Hech qachon ma'lumot to'qib chiqarma. Aniq bilmasang — "aniq bilmayman" deb ayt.
+- Ma'lumot to'qib chiqarma. Aniq bilmasang — "aniq bilmayman" deb ayt.
 - Savolni javobsiz qoldirma: nima ma'lum ekanini ayt, keyin aniq takliflar ber.
-- Hisob-kitobni bosqichma-bosqich yech, formulani ko'rsat va natijani tekshirib chiq.
-- Muhim raqam taxminga asoslangan bo'lsa — "taxmin" deb belgilab qo'y.
-- TIBBIYOT: umumiy ma'lumot ber, tashxis qo'yma va dori tayinlama. Shifokorga murojaat qilishni tavsiya qil.
+- Hisob-kitobni bosqichma-bosqich yech, formulani ko'rsat, natijani tekshir.
+- Taxminga asoslangan raqamni "taxmin" deb belgila.
+- TIBBIYOT: umumiy ma'lumot ber, tashxis qo'yma, dori tayinlama. Shifokorga murojaat qilishni tavsiya qil.
 - DIN: ishonchli manbalarga tayan, turli qarashlarni ko'rsat. Fatvo masalalarida olim yoki imomga murojaat qilishni ayt.
 - Humoyun xato qilsa yoki g'oyasida kamchilik ko'rsang — ochiq ayt, shunchaki maqtama.
 
 ${FORMAT_RULES}
 
-USLUB: professional, ijodiy, aniq va qisqa. O'zbek tilida (zarurat bo'lsa ingliz/arab tillarida). O'rinli emojilardan foydalan.`;
+USLUB: professional, aniq, qisqa. O'zbek tilida (zarurat bo'lsa ingliz/arab tillarida). Emojilardan o'rinli va kam foydalan.`;
 
 const modelConfig = { model: MODEL, systemInstruction };
 if (ENABLE_SEARCH) modelConfig.tools = [{ googleSearch: {} }];
@@ -90,38 +101,35 @@ const model = genAI.getGenerativeModel(modelConfig);
 const modelNoTools = genAI.getGenerativeModel({ model: MODEL, systemInstruction });
 
 // ==================== ANALITIK MODEL (aniq hisob-kitob) ====================
-// codeExecution — model taxmin qilmaydi, haqiqiy kod ishlatib hisoblaydi
-const analystInstruction = `Sen Humoyunning moliya va savdo bo'yicha analitigisan. Unga "Humoyun" deb murojaat qil.
+const analystModel = genAI.getGenerativeModel({
+    model: MODEL,
+    systemInstruction: `Sen JARVIS — Humoyunning moliya va savdo bo'yicha analitigisan. Unga "Humoyun" deb murojaat qil.
 
-MUHIM: har qanday arifmetikani BOSHINGDA hisoblama — har doim kod ishlatib hisobla. Bu majburiy.
+MUHIM: arifmetikani boshingda hisoblama — har doim kod ishlatib hisobla. Bu majburiy.
 
 Javob tuzilishi:
 1. Qanday tushunganingni bir jumlada ayt (kirish ma'lumotlari va farazlar).
 2. Kod bilan hisobla.
-3. Natijani aniq raqamlarda yoz — birligi bilan (so'm, dona, %, oy).
+3. Natijani aniq raqamlarda, birligi bilan yoz (so'm, dona, %, oy).
 4. Xulosa va 1-2 ta amaliy tavsiya.
 
 QOIDALAR:
-- Ustama (markup) va marja (margin) ni aralashtirma, qaysi biri ekanini aniq yoz.
-- Ma'lumot yetishmasa — taxmin qil, LEKIN taxminni ochiq "faraz" deb belgila va natija unga qanchalik bog'liqligini ayt.
-- Bir nechta stsenariy (yomon/o'rtacha/yaxshi) foydali bo'lsa, uchalasini ham hisobla.
+- Ustama va marjani aralashtirma, qaysi biri ekanini aniq yoz.
+- Ma'lumot yetishmasa taxmin qil, LEKIN taxminni "faraz" deb belgila va natija unga qanchalik bog'liqligini ayt.
+- Bir nechta stsenariy (yomon/o'rtacha/yaxshi) foydali bo'lsa, uchalasini hisobla.
 - Katta raqamlarni o'qishli yoz: 12 500 000 so'm.
 - Investitsiya yoki foyda kafolatini berma.
 
 ${FORMAT_RULES}
 
-O'zbek tilida javob ber.`;
-
-const analystModel = genAI.getGenerativeModel({
-    model: MODEL,
-    systemInstruction: analystInstruction,
+O'zbek tilida javob ber.`,
     tools: [{ codeExecution: {} }],
 });
 
 const promptEnhancer = genAI.getGenerativeModel({
     model: MODEL,
     systemInstruction: `Sen rasm generatsiya promptlari bo'yicha mutaxassissan. Foydalanuvchi qisqa g'oya beradi — sen uni professional, batafsil INGLIZ TILIDAGI promptga aylantirasan.
-Promptga kadr turi, yorug'lik, kompozitsiya, uslub, ranglar va sifat tavsiflarini qo'sh.
+Promptda: obyekt, muhit, kompozitsiya, kamera, yorug'lik, atmosfera, uslub, ranglar, sifat tavsiflari bo'lsin.
 FAQAT promptning o'zini qaytar. Izoh, sarlavha, tirnoq yoki qo'shimcha matn YOZMA.`,
 });
 
@@ -166,20 +174,20 @@ async function clearHistory(chatId) {
     catch (e) { console.error("Supabase o'chirish xatosi:", e.message); }
 }
 
-// ==================== RENDER SERVER ====================
+// ==================== SERVER + UYQUGA QARSHI PING ====================
 const port = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('XumoAI Bot ishlamoqda!');
-}).listen(port, () => console.log(`Render server port ${port} da ishga tushdi.`));
+    res.end('JARVIS ishlamoqda.');
+}).listen(port, () => console.log(`Server port ${port} da ishga tushdi.`));
 
 const selfUrl = process.env.RENDER_EXTERNAL_URL;
-if (selfUrl) setInterval(() => { fetch(selfUrl).catch(() => {}); }, 14 * 60 * 1000);
+if (selfUrl) setInterval(() => { fetch(selfUrl).catch(() => {}); }, 5 * 60 * 1000);
 
 // ==================== XAVFSIZLIK ====================
 bot.use((ctx, next) => {
     if (ctx.from && ctx.from.id === myTelegramId) return next();
-    return ctx.reply("🔒 Kechirasiz, men faqat o'z egamga (Humoyunga) xizmat qilaman.");
+    return ctx.reply('🔒 Bu shaxsiy assistent. Faqat egasi bilan ishlayman.');
 });
 
 // ==================== MARKDOWN → TELEGRAM HTML ====================
@@ -252,7 +260,6 @@ async function fileToPart(ctx, fileId, mimeType) {
     return { inlineData: { data: Buffer.from(buffer).toString('base64'), mimeType } };
 }
 
-// codeExecution javobidan matn, kod va natijalarni yig'ish
 function extractParts(response) {
     const parts = response?.candidates?.[0]?.content?.parts || [];
     let out = '';
@@ -320,25 +327,31 @@ async function generateImages(prompt, aspectRatio) {
 // ==================== KOMANDALAR ====================
 bot.start(async (ctx) => {
     await clearHistory(ctx.chat.id);
+    const hour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tashkent', hour: '2-digit', hour12: false }).format(new Date()), 10);
+    const salom = hour < 12 ? 'Xayrli tong' : hour < 18 ? 'Xayrli kun' : 'Xayrli kech';
+
     ctx.reply(
-        "🤖 Salom Humoyun! Men XumoAI — sizning universal yordamchingizman.\n\n" +
-        "🧮 /hisob — aniq moliyaviy hisob-kitob\n" +
-        "🛒 /harid — tovar tahlili va xarid maslahati\n" +
-        "🎨 /img — rasm chizish\n" +
-        "🧹 /clear — xotirani tozalash\n" +
-        "⚙️ /status — holat\n" +
-        "📋 /models — mavjud modellar"
+        `${salom}, Humoyun. Men JARVIS — sizning shaxsiy AI assistentingizman.\n\n` +
+        `Matn, rasm va ovozni tushunaman. Suhbat kontekstini eslab qolaman.\n\n` +
+        `🧮 /hisob — moliyaviy hisob-kitob\n` +
+        `🛒 /harid — tovar tahlili\n` +
+        `🎨 /img — rasm chizish\n` +
+        `📚 /eng — ingliz tili darsi\n` +
+        `📅 /reja — haftalik reja\n` +
+        `⚙️ /status — tizim holati\n\n` +
+        `To'liq ro'yxat: "/" tugmasi.`
     );
 });
 
 bot.command('clear', async (ctx) => {
     await clearHistory(ctx.chat.id);
-    ctx.reply('🧹 Xotira tozalandi, Humoyun.');
+    ctx.reply('Xotira tozalandi. Toza varaqdan boshlaymiz.');
 });
 
 bot.command('status', async (ctx) => {
     const h = await loadHistory(ctx.chat.id);
     ctx.reply(
+        `JARVIS — tizim holati\n\n` +
         `⚙️ Matn modeli: ${MODEL}\n` +
         `🎨 Rasm modeli: ${IMAGE_MODEL}\n` +
         `🧠 Xotirada: ${h.length / 2} ta savol-javob\n` +
@@ -349,7 +362,7 @@ bot.command('status', async (ctx) => {
 });
 
 bot.command('models', async (ctx) => {
-    const msg = await ctx.reply("⏳ Modellar ro'yxati olinyapti...");
+    const msg = await ctx.reply("Modellar ro'yxati olinyapti...");
     try {
         const res = await fetch(`${API_BASE}/models?key=${geminiApiKey}&pageSize=200`);
         const data = await res.json();
@@ -359,19 +372,17 @@ bot.command('models', async (ctx) => {
         const images = names.filter((n) => /imagen|image|veo/i.test(n));
         const texts = names.filter((n) => !/imagen|image|veo|embedding|aqa/i.test(n));
 
-        const text =
+        await sendFormatted(ctx, msg.message_id,
             `🎨 **Rasm/video modellari (${images.length}):**\n` +
             (images.length ? images.map((n) => `- ${n}`).join('\n') : '- topilmadi') +
             `\n\n💬 **Matn modellari (${texts.length}):**\n` +
-            texts.map((n) => `- ${n}`).join('\n');
-
-        await sendFormatted(ctx, msg.message_id, text);
+            texts.map((n) => `- ${n}`).join('\n'));
     } catch (e) {
-        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
     }
 });
 
-// ==================== /hisob — aniq hisob-kitob ====================
+// ==================== /hisob ====================
 bot.command('hisob', async (ctx) => {
     const input = ctx.message.text.replace(/^\/hisob(@\S+)?\s*/i, '').trim();
 
@@ -379,15 +390,14 @@ bot.command('hisob', async (ctx) => {
         return ctx.reply(
             "🧮 Foydalanish: /hisob <masala>\n\n" +
             "Misollar:\n" +
-            "- /hisob 45000 so'mga oldim, 68000 ga sotyapman. Marja va ustama qancha?\n" +
-            "- /hisob 200 dona tovar, dona 12$, yetkazish 300$, bojxona 15%. Tannarx qancha?\n" +
+            "- /hisob 45000 ga oldim, 68000 ga sotyapman. Marja va ustama qancha?\n" +
+            "- /hisob 200 dona, dona 12$, yetkazish 300$, bojxona 15%. Tannarx qancha?\n" +
             "- /hisob 30% marjam bor, 20% chegirma qilsam foyda nima bo'ladi?\n" +
-            "- /hisob 12 mln so'm, 12 oyga 0% bo'lib to'lash, naqd narxi 9.8 mln. Foydalimi?"
+            "- /hisob 12 mln, 12 oyga 0% bo'lib to'lash, naqd narxi 9.8 mln. Foydalimi?"
         );
     }
 
-    const loadingMsg = await ctx.reply('🧮 Hisoblanyapti...');
-
+    const loadingMsg = await ctx.reply('Hisoblanyapti...');
     try {
         const history = await loadHistory(ctx.chat.id);
         const result = await analystModel.generateContent({
@@ -396,23 +406,21 @@ bot.command('hisob', async (ctx) => {
 
         const replyText = extractParts(result.response) || "Hisob natijasi bo'sh qaytdi.";
 
-        const newHistory = [
+        await saveHistory(ctx.chat.id, [
             ...history,
             { role: 'user', parts: [{ text: `[hisob] ${input}` }] },
             { role: 'model', parts: [{ text: replyText }] },
-        ].slice(-MAX_HISTORY);
+        ].slice(-MAX_HISTORY));
 
-        await saveHistory(ctx.chat.id, newHistory);
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
-
     } catch (error) {
         console.error('Hisob xatosi:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-            `❌ Hisoblab bo'lmadi: ${(error.message || "noma'lum").slice(0, 300)}`);
+            `Hisoblab bo'lmadi: ${(error.message || "noma'lum").slice(0, 300)}`);
     }
 });
 
-// ==================== /harid — tovar ekspertizasi ====================
+// ==================== /harid ====================
 bot.command('harid', async (ctx) => {
     const input = ctx.message.text.replace(/^\/harid(@\S+)?\s*/i, '').trim();
 
@@ -420,30 +428,27 @@ bot.command('harid', async (ctx) => {
         return ctx.reply(
             "🛒 Foydalanish: /harid <tovar yoki savol>\n\n" +
             "Misollar:\n" +
-            "- /harid o'quv markazi uchun proyektor, byudjet 5 mln so'm\n" +
-            "- /harid montaj uchun noutbuk, 12 mln gacha\n" +
-            "- /harid bu changyutgichni olsam bo'ladimi? [model nomi]\n\n" +
-            "Byudjet va foydalanish maqsadini yozsangiz, javob aniqroq bo'ladi."
+            "- /harid o'quv markazi uchun proyektor, byudjet 5 mln\n" +
+            "- /harid montaj uchun noutbuk, 12 mln gacha\n\n" +
+            "Byudjet va maqsadni yozsangiz, javob aniqroq bo'ladi."
         );
     }
 
-    const loadingMsg = await ctx.reply('🛒 Tahlil qilyapman...');
-
+    const loadingMsg = await ctx.reply('Tahlil qilinyapti...');
     try {
         const history = await loadHistory(ctx.chat.id);
-
         const framed = `Quyidagi xarid bo'yicha to'liq ekspertiza qil.
 
 So'rov: ${input}
 
 Javobda albatta shu bo'limlar bo'lsin:
-1. Bu tovarda haqiqatan muhim 3 ta parametr (qolganlari marketing shovqini).
+1. Bu tovarda haqiqatan muhim 3 ta parametr.
 2. Sifatli namunaning belgilari.
-3. Yomon/sifatsiz namunaning belgilari — nimadan qochish kerak.
-4. Real narx oralig'i (bilmasang, qidiruvdan foydalanib manba ko'rsat; topilmasa "aniq bilmayman" deb ayt).
-5. Umumiy egalik narxi — keyinchalik qanday xarajat chiqadi.
-6. Sotib olishdan oldingi tekshirish ro'yxati (do'konda nimani o'z ko'zi bilan ko'rish kerak).
-7. Qachon BU TOVARNI OLMASLIK kerak — muqobil variant bilan.`;
+3. Sifatsiz namunaning belgilari — nimadan qochish kerak.
+4. Real narx oralig'i (bilmasang qidiruvdan foydalanib manba ko'rsat; topilmasa "aniq bilmayman" de).
+5. Umumiy egalik narxi.
+6. Sotib olishdan oldingi tekshirish ro'yxati.
+7. Qachon bu tovarni OLMASLIK kerak — muqobil bilan.`;
 
         let replyText;
         try {
@@ -461,19 +466,17 @@ Javobda albatta shu bo'limlar bo'lsin:
 
         if (!replyText) replyText = "Javob bo'sh qaytdi. So'rovni aniqroq yozing.";
 
-        const newHistory = [
+        await saveHistory(ctx.chat.id, [
             ...history,
             { role: 'user', parts: [{ text: `[harid] ${input}` }] },
             { role: 'model', parts: [{ text: replyText }] },
-        ].slice(-MAX_HISTORY);
+        ].slice(-MAX_HISTORY));
 
-        await saveHistory(ctx.chat.id, newHistory);
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
-
     } catch (error) {
         console.error('Harid tahlili xatosi:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-            `❌ Xatolik: ${(error.message || "noma'lum").slice(0, 300)}`);
+            `Xatolik: ${(error.message || "noma'lum").slice(0, 300)}`);
     }
 });
 
@@ -500,8 +503,7 @@ bot.command('img', async (ctx) => {
     let raw = false;
     if (input.startsWith('!')) { raw = true; input = input.slice(1).trim(); }
 
-    const loadingMsg = await ctx.reply('🎨 Prompt tayyorlanyapti...');
-
+    const loadingMsg = await ctx.reply('Prompt tayyorlanyapti...');
     try {
         let finalPrompt = input;
 
@@ -515,27 +517,26 @@ bot.command('img', async (ctx) => {
             }
         }
 
-        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '🖌 Rasm chizilyapti...');
+        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, 'Rasm chizilyapti...');
 
         const images = await generateImages(finalPrompt, aspectRatio);
-        const caption = `🎨 <b>Prompt:</b>\n${esc(finalPrompt).slice(0, 900)}`;
+        const caption = `<b>Prompt:</b>\n${esc(finalPrompt).slice(0, 900)}`;
 
         await ctx.replyWithPhoto({ source: images[0] }, { caption, parse_mode: 'HTML' });
         await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => {});
-
     } catch (error) {
         console.error('Rasm generatsiya xatosi:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-            `❌ Rasm chizilmadi: ${(error.message || "noma'lum").slice(0, 400)}\n\nModel: ${IMAGE_MODEL}`);
+            `Rasm chizilmadi: ${(error.message || "noma'lum").slice(0, 400)}\n\nModel: ${IMAGE_MODEL}`);
     }
 });
 
-// ==================== HISOB-KITOBNI AVTOMATIK ANIQLASH ====================
-// Komandasiz yozilgan hisob-kitob savollarini ham analitik modelga yo'naltiramiz
-const CALC_HINT = /(hisobla|hisob-kitob|foiz|foyda|zarar|chegirma|marja|ustama|tannarx|qqs|nds|kredit|bo['’]?lib to['’]?lash|oylik to['’]?lov|jami qancha|qancha bo['’]?ladi|necha foiz|rentabellik|aylanma)/i;
-const hasNumber = (s) => /\d/.test(s);
 // ==================== INGLIZ TILI MODULI ====================
 require('./english')(bot, { genAI, MODEL, supabase, sendFormatted, esc, myTelegramId, geminiApiKey });
+
+// ==================== HISOB-KITOBNI AVTOMATIK ANIQLASH ====================
+const CALC_HINT = /(hisobla|hisob-kitob|foiz|foyda|zarar|chegirma|marja|ustama|tannarx|qqs|nds|kredit|bo['’]?lib to['’]?lash|oylik to['’]?lov|jami qancha|qancha bo['’]?ladi|necha foiz|rentabellik|aylanma)/i;
+const hasNumber = (s) => /\d/.test(s);
 
 // ==================== ASOSIY ISHLOVCHI ====================
 bot.on('message', async (ctx) => {
@@ -543,7 +544,7 @@ bot.on('message', async (ctx) => {
     if (!m.text && !m.photo && !m.voice && !m.audio && !m.document) return;
     if (m.text && m.text.startsWith('/')) return;
 
-    const loadingMsg = await ctx.reply('⏳ Tahlil qilyapman...');
+    const loadingMsg = await ctx.reply('Tahlil qilinyapti...');
 
     try {
         const history = await loadHistory(ctx.chat.id);
@@ -572,7 +573,7 @@ bot.on('message', async (ctx) => {
                 mediaNote = ' [hujjat yuborilgan]';
             } else {
                 await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-                    `⚠️ Bu format hozircha qo'llab-quvvatlanmaydi (${mime || "noma'lum"}). PDF, TXT yoki CSV yuboring.`);
+                    `Bu format qo'llab-quvvatlanmaydi (${mime || "noma'lum"}). PDF, TXT yoki CSV yuboring.`);
                 return;
             }
         }
@@ -584,9 +585,8 @@ bot.on('message', async (ctx) => {
         let replyText;
 
         if (isCalc) {
-            // Aniq hisob talab qiladigan savol — analitik modelga
             try {
-                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, '🧮 Hisoblanyapti...');
+                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, 'Hisoblanyapti...');
                 const result = await analystModel.generateContent(request);
                 replyText = extractParts(result.response);
             } catch (e) {
@@ -607,26 +607,55 @@ bot.on('message', async (ctx) => {
 
         if (!replyText) replyText = "Javob bo'sh qaytdi. Savolni boshqacha shaklda bering.";
 
-        const newHistory = [
+        await saveHistory(ctx.chat.id, [
             ...history,
             { role: 'user', parts: [{ text: text + mediaNote }] },
             { role: 'model', parts: [{ text: replyText }] },
-        ].slice(-MAX_HISTORY);
+        ].slice(-MAX_HISTORY));
 
-        await saveHistory(ctx.chat.id, newHistory);
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
-
     } catch (error) {
         console.error('API Xatolik:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-            `❌ Xatolik: ${(error.message || "noma'lum").slice(0, 300)}`);
+            `Xatolik: ${(error.message || "noma'lum").slice(0, 300)}`);
     }
 });
+
+// ==================== KOMANDALAR MENYUSI ====================
+const COMMANDS = [
+    { command: 'eng', description: '📚 Bugungi dars' },
+    { command: 'word', description: "🔁 So'z takrori (new / add)" },
+    { command: 'chunk', description: "🧱 So'z birikmalari" },
+    { command: 'drill', description: '⚡ Tez tarjima drilli' },
+    { command: 'talaffuz', description: '🗣 Talaffuz mashqi' },
+    { command: 'xato', description: '📊 Xatolar hisoboti + mashq' },
+    { command: 'read', description: "📖 O'qish mashqi" },
+    { command: 'listen', description: "🎧 Tinglash topshirig'i" },
+    { command: 'essay', description: '✍️ Esse: mavzu + baholash' },
+    { command: 'ielts', description: '🎤 IELTS Speaking imtihoni' },
+    { command: 'speak', description: '💬 Suhbat mashqi' },
+    { command: 'write', description: '📝 Tayyor matnni baholash' },
+    { command: 'test', description: '🎯 Daraja tekshiruvi' },
+    { command: 'progress', description: '📈 Statistika' },
+    { command: 'reja', description: '📅 Haftalik reja' },
+    { command: 'hisob', description: '🧮 Moliyaviy hisob-kitob' },
+    { command: 'harid', description: '🛒 Tovar tahlili' },
+    { command: 'img', description: '🎨 Rasm chizish' },
+    { command: 'stop', description: '🛑 Rejimdan chiqish' },
+    { command: 'clear', description: '🧹 Xotirani tozalash' },
+    { command: 'status', description: '⚙️ Tizim holati' },
+    { command: 'models', description: '📋 Mavjud modellar' },
+    { command: 'start', description: '🤖 Boshlash' },
+];
+
+bot.telegram.setMyCommands(COMMANDS)
+    .then(() => console.log('📋 Komandalar menyusi o\'rnatildi.'))
+    .catch((e) => console.warn('Menyu o\'rnatilmadi:', e.message));
 
 // ==================== ISHGA TUSHIRISH ====================
 async function startBot(attempt = 1) {
     try {
-        console.log(`🤖 XumoAI Bot ishga tushyapti (urinish ${attempt})...`);
+        console.log(`JARVIS ishga tushyapti (urinish ${attempt})...`);
         await bot.launch({ dropPendingUpdates: true });
     } catch (e) {
         console.error(`Ishga tushirish xatosi (${attempt}):`, e.message);
@@ -635,41 +664,10 @@ async function startBot(attempt = 1) {
             console.log(`${delay / 1000}s dan keyin qayta urinaman...`);
             setTimeout(() => startBot(attempt + 1), delay);
         } else {
-            console.error("Bot ishga tushmadi — boshqa nusxa ishlayotgan bo'lishi mumkin.");
+            console.error("JARVIS ishga tushmadi — boshqa nusxa ishlayotgan bo'lishi mumkin.");
         }
     }
 }
-
-// ==================== KOMANDALAR MENYUSI ====================
-const COMMANDS = [
-    { command: 'eng',      description: "📚 Bugungi dars" },
-    { command: 'word',     description: "🔁 So'z takrori (new / add)" },
-    { command: 'xato',     description: "📊 Xatolar hisoboti + mashq" },
-    { command: 'read',     description: "📖 O'qish mashqi" },
-    { command: 'listen',   description: "🎧 Tinglash topshirig'i" },
-    { command: 'essay',    description: "✍️ Esse: mavzu + baholash" },
-    { command: 'ielts',    description: "🎤 IELTS Speaking imtihoni" },
-    { command: 'speak',    description: "💬 Danny bilan suhbat" },
-    { command: 'write',    description: "📝 Tayyor matnni baholash" },
-    { command: 'test',     description: "🎯 Daraja tekshiruvi" },
-    { command: 'progress', description: "📈 Statistika" },
-    { command: 'reja',     description: "📅 Haftalik reja" },
-    { command: 'hisob',    description: "🧮 Moliyaviy hisob-kitob" },
-    { command: 'harid',    description: "🛒 Tovar tahlili" },
-    { command: 'img',      description: "🎨 Rasm chizish" },
-    { command: 'stop',     description: "🛑 Rejimdan chiqish" },
-    { command: 'clear',    description: "🧹 Xotirani tozalash" },
-    { command: 'status',   description: "⚙️ Bot holati" },
-    { command: 'models',   description: "📋 Mavjud modellar" },
-    { command: 'start',    description: "🤖 Boshlash" },
-        { command: 'chunk',    description: "🧱 So'z birikmalari" },
-    { command: 'drill',    description: "⚡ Tez tarjima drilli" },
-    { command: 'talaffuz', description: "🗣 Talaffuz mashqi" },
-];
-
-bot.telegram.setMyCommands(COMMANDS)
-    .then(() => console.log('📋 Komandalar menyusi o\'rnatildi.'))
-    .catch((e) => console.warn('Menyu o\'rnatilmadi:', e.message));
 startBot();
 
 process.on('unhandledRejection', (r) => console.error('Ushlanmagan rad etish:', r?.message || r));

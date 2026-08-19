@@ -1,7 +1,7 @@
 // ============================================================
-//  XumoAI — INGLIZ TILI MODULI v2
-//  Grammar · Vocabulary · Listening · Reading · Writing · Speaking
-//  Leitner interval takrori, haftalik aylanma, TTS audio
+//  JARVIS — INGLIZ TILI MODULI v4
+//  Grammar · Vocabulary · Chunks · Drill · Pronunciation
+//  Listening · Reading · Writing · Speaking · Xatolar jurnali
 // ============================================================
 
 const cron = require('node-cron');
@@ -1511,5 +1511,5 @@ ${FORMAT}`,
         } catch (e) { console.error('Tungi eslatma:', e.message); }
     }, tz);
 
-    console.log('📚 Ingliz tili moduli v2 yuklandi (grammar, vocab, listening, reading, essay, speaking).');
+    console.log('📚 Ingliz tili moduli v4 yuklandi (grammar, vocab, chunk, drill, talaffuz, listening, reading, essay, speaking).');
 };
