@@ -509,11 +509,15 @@ function splitForSpeech(text, limit) {
     return parts;
 }
 
-async function sendVoiceReply(ctx, rawText) {
+async function sendVoiceReply(ctx, rawText, deleteMsgId = null) {
     if (!VOICE_REPLY) return false;
 
     let speech = textForSpeech(rawText);
     if (!speech) return false;
+
+    const cleanup = async () => {
+        if (deleteMsgId) await ctx.telegram.deleteMessage(ctx.chat.id, deleteMsgId).catch(() => {});
+    };
 
     // To'liq o'qish rejimi — bo'laklarga bo'lib yuboramiz
     if (speech.length > VOICE_MAX_CHARS && voiceFull) {
@@ -523,6 +527,7 @@ async function sendVoiceReply(ctx, rawText) {
             try {
                 const audio = await textToSpeech(chunks[i]);
                 await deliverAudio(ctx, audio, `JARVIS ${i + 1}/${chunks.length}`);
+                if (!ok) await cleanup();
                 ok = true;
             } catch (e) {
                 console.warn(`Ovoz bo'lagi ${i + 1}:`, e.message);
@@ -553,7 +558,9 @@ async function sendVoiceReply(ctx, rawText) {
 
     try {
         const audio = await textToSpeech(speech);
-        return await deliverAudio(ctx, audio);
+        const ok = await deliverAudio(ctx, audio);
+        if (ok) await cleanup();
+        return ok;
     } catch (e) {
         console.warn('Ovozli javob yaratilmadi:', e.message);
         lastMediaError = e.message;
@@ -879,6 +886,43 @@ async function extractFromVoice(ctx, transcriptHint, taskApi) {
     }
 }
 
+// Oxirgi to'liq javob — /matn uchun
+const lastFullAnswer = new Map();
+
+// Ovoz ostiga qo'yiladigan qisqa matn xulosa
+async function shortSummary(rawText) {
+    const plainText = textForSpeech(rawText);
+
+    // Javob qisqa bo'lsa, o'zini beramiz
+    if (plainText.length <= 400) return esc(plainText);
+
+    try {
+        const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
+            `Quyidagi javobning eng muhim mag'zini 2-3 qatorda yoz.\n\n` +
+            `Qoidalar:\n` +
+            `- Aniq raqamlar, nomlar va sanalarni ALBATTA saqla (ovozda ular yodda qolmaydi)\n` +
+            `- 350 belgidan oshmasin\n` +
+            `- Formatlash belgilaridan foydalanma\n` +
+            `- Kirish so'z yozma, darrov mag'zidan boshla\n\n` +
+            `Javob:\n${rawText.slice(0, 6000)}`
+        );
+        const s = gen.response.text().trim();
+        return esc(s.slice(0, 400));
+    } catch (e) {
+        console.warn('Qisqa xulosa xatosi:', e.message);
+        return esc(plainText.slice(0, 350) + '…');
+    }
+}
+
+// ==================== /matn — oxirgi javobni to'liq ko'rsatish ====================
+bot.command('matn', async (ctx) => {
+    const full = lastFullAnswer.get(ctx.chat.id);
+    if (!full) return ctx.reply("Oxirgi ovozli javob topilmadi.");
+
+    const msg = await ctx.reply('...');
+    await sendFormatted(ctx, msg.message_id, full);
+});
+
 // ==================== /prompt — tashqi AI vositalar uchun prompt ====================
 bot.command('prompt', async (ctx) => {
     let input = ctx.message.text.replace(/^\/prompt(@\S+)?\s*/i, '').trim();
@@ -1067,13 +1111,30 @@ bot.on('message', async (ctx) => {
             { role: 'model', parts: [{ text: replyText }] },
         ].slice(-MAX_HISTORY));
 
-        await sendFormatted(ctx, loadingMsg.message_id, replyText);
+        // Ovozli xabarga javob: OVOZ birinchi, ostiga qisqa matn xulosa
+        if (m.voice) {
+            lastFullAnswer.set(ctx.chat.id, replyText);
+
+            const spoken = await sendVoiceReply(ctx, replyText, loadingMsg.message_id);
+
+            if (spoken) {
+                const summary = await shortSummary(replyText);
+                await ctx.reply(`${summary}\n\n📄 To'liq matn: /matn`, { parse_mode: 'HTML' })
+                    .catch(() => ctx.reply(`${summary.replace(/<[^>]+>/g, '')}\n\nTo'liq matn: /matn`));
+            } else {
+                // Ovoz chiqmadi — matnni to'liq beramiz
+                await sendFormatted(ctx, loadingMsg.message_id, replyText);
+            }
+        } else {
+            await sendFormatted(ctx, loadingMsg.message_id, replyText);
+            if (voiceMode) await sendVoiceReply(ctx, replyText);
+        }
 
         // Ovozli xabarda vazifa yoki g'oya aytilgan bo'lsa — ajratib yozamiz
         if (m.voice) {
             const saved = await extractFromVoice(ctx, text + ' ' + replyText.slice(0, 500), taskApi);
             if (saved && (saved.tasks.length || saved.ideas.length)) {
-                const lines = ['📥 **Ovozdan ajratildi**'];
+                const lines = ['📥 Ovozdan ajratildi'];
                 if (saved.tasks.length) {
                     lines.push('', `📌 Vazifalar (${saved.tasks.length}):`);
                     saved.tasks.forEach((t) => lines.push(`- ${t.title}${t.due_date ? ` — ${t.due_date}` : ''}`));
@@ -1083,12 +1144,9 @@ bot.on('message', async (ctx) => {
                     saved.ideas.forEach((i) => lines.push(`- ${i}`));
                 }
                 lines.push('', `Ro'yxat: /vazifalar · Keraksizini: /ochir <raqam>`);
-                await ctx.reply(lines.join('\n').replace(/\*\*/g, ''));
+                await ctx.reply(lines.join('\n'));
             }
         }
-
-        // Ovozli javob: ovozli xabarga har doim, matnga — /suhbat yoqilgan bo'lsa
-        if (m.voice || voiceMode) await sendVoiceReply(ctx, replyText);
     } catch (error) {
         console.error('API Xatolik:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
@@ -1134,6 +1192,7 @@ const COMMANDS = [
     { command: 'prompt', description: '🎬 AI vositalar uchun prompt' },
     { command: 'ovoz', description: '🔊 Matnni ovozga aylantirish' },
     { command: 'ovozi', description: '🎙 Ovozni tanlash' },
+    { command: 'matn', description: '📄 Oxirgi javobni matnda' },
     { command: 'fellar', description: "📘 Noto'g'ri fe'llar" },
     { command: 'hafta', description: '📊 Haftalik hisobot' },
     { command: 'stop', description: '🛑 Rejimdan chiqish' },
