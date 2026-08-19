@@ -14,7 +14,6 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const myTelegramId = parseInt(process.env.MY_TELEGRAM_ID, 10);
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-const IMAGE_MODEL = process.env.IMAGE_MODEL || 'gemini-3.1-flash-image';
 const ENABLE_SEARCH = process.env.ENABLE_SEARCH !== 'false';
 const SHOW_CODE = process.env.SHOW_CODE === 'true';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -271,57 +270,137 @@ function extractParts(response) {
     return out.trim();
 }
 
-// ==================== RASM GENERATSIYA ====================
-async function generateImages(prompt, aspectRatio) {
-    const isImagen = /imagen/i.test(IMAGE_MODEL);
-    const url = `${API_BASE}/models/${IMAGE_MODEL}:${isImagen ? 'predict' : 'generateContent'}?key=${geminiApiKey}`;
+// ==================== MEDIA YUBORISH (Supabase Storage orqali) ====================
+// Render bepul tarifi Telegram'ga to'g'ridan-to'g'ri fayl yuklashni o'tkazmaydi
+// ("socket hang up"). Shuning uchun faylni Supabase'ga yuklab, Telegram'ga
+// faqat havolani beramiz — faylni Telegram o'zi olib keladi.
+const BUCKET = process.env.STORAGE_BUCKET || 'media';
 
-    if (isImagen) {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio } }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
-        const preds = data.predictions || [];
-        if (!preds.length) throw new Error('Model rasm qaytarmadi.');
-        return preds.map((p) => Buffer.from(p.bytesBase64Encoded, 'base64'));
+async function uploadMedia(buffer, ext, contentType) {
+    if (!supabase) throw new Error('Supabase ulanmagan — media yuborib bo\'lmaydi.');
+
+    const path = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await supabase.storage.from(BUCKET)
+        .upload(path, buffer, { contentType, upsert: false });
+
+    if (error) throw new Error(`Storage: ${error.message}`);
+
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    if (!data?.publicUrl) throw new Error('Storage havolasi olinmadi.');
+
+    // Telegram havolani bir necha soniyada yuklab oladi — keyin fayl keraksiz
+    setTimeout(() => {
+        supabase.storage.from(BUCKET).remove([path]).catch(() => {});
+    }, 90_000);
+
+    return data.publicUrl;
+}
+
+// ==================== OVOZ SINTEZI ====================
+const TTS_MODEL = process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts';
+const TTS_VOICE = process.env.TTS_VOICE || 'Kore';
+const VOICE_REPLY = process.env.VOICE_REPLY !== 'false';
+const VOICE_MAX_CHARS = parseInt(process.env.VOICE_MAX_CHARS || '1200', 10);
+
+function pcmToWav(pcm, sampleRate) {
+    const channels = 1, bits = 16;
+    const h = Buffer.alloc(44);
+    h.write('RIFF', 0);
+    h.writeUInt32LE(36 + pcm.length, 4);
+    h.write('WAVE', 8);
+    h.write('fmt ', 12);
+    h.writeUInt32LE(16, 16);
+    h.writeUInt16LE(1, 20);
+    h.writeUInt16LE(channels, 22);
+    h.writeUInt32LE(sampleRate, 24);
+    h.writeUInt32LE(sampleRate * channels * bits / 8, 28);
+    h.writeUInt16LE(channels * bits / 8, 32);
+    h.writeUInt16LE(bits, 34);
+    h.write('data', 36);
+    h.writeUInt32LE(pcm.length, 40);
+    return Buffer.concat([h, pcm]);
+}
+
+async function textToSpeech(text) {
+    const res = await fetch(`${API_BASE}/models/${TTS_MODEL}:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            contents: [{ parts: [{ text }] }],
+            generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: TTS_VOICE } } },
+            },
+        }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || `TTS HTTP ${res.status}`);
+
+    const part = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData);
+    if (!part) throw new Error('TTS audio qaytarmadi.');
+
+    const rate = parseInt((part.inlineData.mimeType.match(/rate=(\d+)/) || [])[1] || '24000', 10);
+    return pcmToWav(Buffer.from(part.inlineData.data, 'base64'), rate);
+}
+
+// Ovoz uchun matnni tozalash — belgilar o'qib berilmasligi kerak
+function textForSpeech(md) {
+    return md
+        .replace(/```[\s\S]*?```/g, ' Kod bloki. ')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/\*\*|__|\*|_|#{1,6}\s*/g, '')
+        .replace(/^\s*[-•+]\s*/gm, '')
+        .replace(/https?:\/\/\S+/g, ' havola ')
+        .replace(/[\p{Extended_Pictographic}]/gu, '')
+        .replace(/\n{2,}/g, '. ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// Ovozni Telegram'ga yuborish — uch xil usulni ketma-ket sinaymiz
+async function deliverAudio(ctx, wav, title = 'JARVIS') {
+    const errors = [];
+
+    // 1-usul: to'g'ridan-to'g'ri Buffer (Matnshunos shu yo'l bilan ishlagan)
+    try {
+        await ctx.replyWithVoice({ source: wav, filename: 'jarvis.ogg' });
+        return true;
+    } catch (e) { errors.push(`voice/buffer: ${e.message}`); }
+
+    // 2-usul: audio sifatida Buffer
+    try {
+        await ctx.replyWithAudio({ source: wav, filename: 'jarvis.wav' }, { title });
+        return true;
+    } catch (e) { errors.push(`audio/buffer: ${e.message}`); }
+
+    // 3-usul: Supabase Storage havolasi orqali
+    try {
+        const url = await uploadMedia(wav, 'wav', 'audio/wav');
+        await ctx.replyWithAudio(url, { title });
+        return true;
+    } catch (e) { errors.push(`audio/url: ${e.message}`); }
+
+    console.warn('Audio yuborilmadi:', errors.join(' | '));
+    lastMediaError = errors.join('\n');
+    return false;
+}
+
+let lastMediaError = null;
+
+async function sendVoiceReply(ctx, rawText) {
+    if (!VOICE_REPLY) return false;
+
+    const speech = textForSpeech(rawText);
+    if (!speech || speech.length > VOICE_MAX_CHARS) return false;
+
+    try {
+        const wav = await textToSpeech(speech);
+        return await deliverAudio(ctx, wav);
+    } catch (e) {
+        console.warn('Ovozli javob yaratilmadi:', e.message);
+        lastMediaError = e.message;
+        return false;
     }
-
-    const contents = [{ role: 'user', parts: [{ text: prompt }] }];
-    const contentsWithHint = [{ role: 'user', parts: [{ text: `${prompt}\n\nAspect ratio: ${aspectRatio}` }] }];
-
-    const attempts = [
-        { contents, generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio } } },
-        { contents, generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } },
-        { contents: contentsWithHint },
-    ];
-
-    let lastErr;
-    for (const body of attempts) {
-        try {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
-
-            const rParts = data?.candidates?.[0]?.content?.parts || [];
-            const images = rParts.filter((p) => p.inlineData).map((p) => Buffer.from(p.inlineData.data, 'base64'));
-            if (!images.length) {
-                const reason = data?.candidates?.[0]?.finishReason || '';
-                throw new Error(`Model rasm qaytarmadi. ${reason}`.trim());
-            }
-            return images;
-        } catch (e) {
-            lastErr = e;
-            console.warn('Rasm urinishi muvaffaqiyatsiz:', e.message);
-        }
-    }
-    throw lastErr;
 }
 
 // ==================== KOMANDALAR ====================
@@ -335,7 +414,7 @@ bot.start(async (ctx) => {
         `Matn, rasm va ovozni tushunaman. Suhbat kontekstini eslab qolaman.\n\n` +
         `🧮 /hisob — moliyaviy hisob-kitob\n` +
         `🛒 /harid — tovar tahlili\n` +
-        `🎨 /img — rasm chizish\n` +
+        `🎬 /prompt — AI vositalar uchun prompt\n` +
         `📚 /eng — ingliz tili darsi\n` +
         `📅 /reja — haftalik reja\n` +
         `⚙️ /status — tizim holati\n\n` +
@@ -353,10 +432,11 @@ bot.command('status', async (ctx) => {
     ctx.reply(
         `JARVIS — tizim holati\n\n` +
         `⚙️ Matn modeli: ${MODEL}\n` +
-        `🎨 Rasm modeli: ${IMAGE_MODEL}\n` +
         `🧠 Xotirada: ${h.length / 2} ta savol-javob\n` +
         `💾 Doimiy xotira: ${supabase ? 'yoqilgan (Supabase)' : "o'chirilgan (RAM)"}\n` +
         `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}\n` +
+        `🔊 Ovozli javob: ${VOICE_REPLY && supabase ? 'yoqilgan' : "o'chirilgan"}\n` +
+        `📦 Media ombori: ${supabase ? BUCKET : "yo'q"}\n` +
         `🧮 Hisob kodi ko'rinishi: ${SHOW_CODE ? 'yoqilgan' : "o'chirilgan"}`
     );
 });
@@ -480,54 +560,97 @@ Javobda albatta shu bo'limlar bo'lsin:
     }
 });
 
-// ==================== /img ====================
-bot.command('img', async (ctx) => {
-    let input = ctx.message.text.replace(/^\/img(@\S+)?\s*/i, '').trim();
+// ==================== /prompt — tashqi AI vositalar uchun prompt ====================
+bot.command('prompt', async (ctx) => {
+    let input = ctx.message.text.replace(/^\/prompt(@\S+)?\s*/i, '').trim();
 
     if (!input) {
         return ctx.reply(
-            "🎨 Foydalanish: /img <tavsif>\n\n" +
-            "Nisbat bilan: /img 9:16 tog'da quyosh chiqishi\n" +
-            "Qo'llab-quvvatlanadi: 1:1, 3:4, 4:3, 9:16, 16:9\n" +
-            "Promptni o'zgartirmasdan: /img ! your exact english prompt"
+            '🎬 Foydalanish: /prompt <g\'oya>\n\n' +
+            'Vosita nomini boshiga yozing:\n' +
+            '- /prompt veo bozorda savdo qilayotgan chol, kunduzgi yorug\'lik\n' +
+            '- /prompt mj o\'quv markazi logotipi, minimalist\n' +
+            '- /prompt banana bu rasmdagi fonni almashtir\n\n' +
+            'Yozmasangiz, g\'oyaga qarab o\'zim tanlayman.\n' +
+            'Rasm yuborib, ostiga /prompt yozsangiz — rasmni tahlil qilib prompt tuzaman.'
         );
     }
 
-    let aspectRatio = '1:1';
-    const ratioMatch = input.match(/^(1:1|3:4|4:3|9:16|16:9)\s+/);
-    if (ratioMatch) {
-        aspectRatio = ratioMatch[1];
-        input = input.slice(ratioMatch[0].length).trim();
+    const TOOLS = {
+        veo: 'Google Veo (video)', mj: 'Midjourney (rasm)', midjourney: 'Midjourney (rasm)',
+        dalle: 'DALL-E (rasm)', banana: 'Nano Banana (rasm tahriri)', sora: 'Sora (video)',
+        kling: 'Kling (video)', runway: 'Runway (video)', flux: 'Flux (rasm)',
+    };
+
+    let tool = null;
+    const first = input.split(/\s+/)[0].toLowerCase();
+    if (TOOLS[first]) {
+        tool = TOOLS[first];
+        input = input.slice(first.length).trim();
     }
 
-    let raw = false;
-    if (input.startsWith('!')) { raw = true; input = input.slice(1).trim(); }
-
-    const loadingMsg = await ctx.reply('Prompt tayyorlanyapti...');
+    const msg = await ctx.reply('Prompt tuzilyapti...');
     try {
-        let finalPrompt = input;
+        const guide = `Sen professional prompt muhandisisan. Humoyun uchun tayyor, ko'chirib qo'yiladigan prompt yozasan.
 
-        if (!raw) {
-            try {
-                const enhanced = await promptEnhancer.generateContent(input);
-                const t = enhanced.response.text().trim();
-                if (t) finalPrompt = t.replace(/^["'`]+|["'`]+$/g, '');
-            } catch (e) {
-                console.warn('Prompt kuchaytirish xatosi, asl matn ishlatildi:', e.message);
-            }
+Vosita: ${tool || "g'oyaga qarab eng mosini o'zing tanla va nega tanlaganingni bir jumlada ayt"}
+
+G'oya: ${input}
+
+Javob tuzilishi:
+1. 🎯 **Vosita** — qaysi vosita va nega (1 jumla).
+2. 📋 **PROMPT** — inglizcha, kod bloki ichida, ko'chirishga tayyor.
+3. ⚙️ **Sozlamalar** — aspect ratio, davomiylik, versiya, boshqa parametrlar.
+4. 🔁 **Variant** — bitta muqobil yo'nalish (qisqacha, prompt shaklida emas, g'oya sifatida).
+
+PROMPT ichida albatta bo'lsin: obyekt, muhit, kompozitsiya, kamera (rakurs, obyektiv, harakat), yorug'lik, atmosfera, vizual uslub, ranglar, sifat tavsiflari. Video bo'lsa — harakat va kadr uzluksizligi ham.
+
+Prompt ingliz tilida, qolgan izohlar o'zbekcha. Qisqa va aniq yoz.`;
+
+        const parts = [{ text: guide }];
+
+        // Javob berilgan rasm bo'lsa — uni ham tahlil qilamiz
+        const replyPhoto = ctx.message.reply_to_message?.photo;
+        if (replyPhoto) {
+            const photo = replyPhoto[replyPhoto.length - 1];
+            parts.push(await fileToPart(ctx, photo.file_id, 'image/jpeg'));
+            parts[0].text += '\n\nHumoyun rasm ham berdi — uslubi, ranglari va kompozitsiyasini tahlil qilib, promptga singdir.';
         }
 
-        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, 'Rasm chizilyapti...');
+        const result = await model.generateContent({ contents: [{ role: 'user', parts }] });
+        await sendFormatted(ctx, msg.message_id, result.response.text());
+    } catch (e) {
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
+    }
+});
 
-        const images = await generateImages(finalPrompt, aspectRatio);
-        const caption = `<b>Prompt:</b>\n${esc(finalPrompt).slice(0, 900)}`;
+// ==================== /ovoz — matnni ovozga aylantirish ====================
+bot.command('ovoz', async (ctx) => {
+    const input = ctx.message.text.replace(/^\/ovoz(@\S+)?\s*/i, '').trim();
 
-        await ctx.replyWithPhoto({ source: images[0] }, { caption, parse_mode: 'HTML' });
-        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => {});
-    } catch (error) {
-        console.error('Rasm generatsiya xatosi:', error);
-        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-            `Rasm chizilmadi: ${(error.message || "noma'lum").slice(0, 400)}\n\nModel: ${IMAGE_MODEL}`);
+    if (!input) {
+        return ctx.reply(
+            '🔊 Foydalanish: /ovoz <matn>\n\n' +
+            'Ovozli xabar yuborsangiz, javob avtomatik ovozda ham keladi.\n' +
+            "O'chirish: Render'da VOICE_REPLY = false"
+        );
+    }
+
+    const msg = await ctx.reply('Ovoz tayyorlanyapti...');
+    try {
+        lastMediaError = null;
+        const wav = await textToSpeech(textForSpeech(input));
+        const ok = await deliverAudio(ctx, wav);
+
+        if (ok) {
+            await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
+        } else {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
+                `Ovoz yaratildi (${(wav.length / 1024 / 1024).toFixed(2)} MB), lekin yuborilmadi.\n\nUrinishlar:\n${lastMediaError}`);
+        }
+    } catch (e) {
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
+            `Ovoz yaratilmadi: ${e.message}`);
     }
 });
 
@@ -614,6 +737,9 @@ bot.on('message', async (ctx) => {
         ].slice(-MAX_HISTORY));
 
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
+
+        // Ovozli xabarga — ovozli javob ham (matn baribir yuqorida qoladi)
+        if (m.voice) await sendVoiceReply(ctx, replyText);
     } catch (error) {
         console.error('API Xatolik:', error);
         await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
@@ -640,7 +766,10 @@ const COMMANDS = [
     { command: 'reja', description: '📅 Haftalik reja' },
     { command: 'hisob', description: '🧮 Moliyaviy hisob-kitob' },
     { command: 'harid', description: '🛒 Tovar tahlili' },
-    { command: 'img', description: '🎨 Rasm chizish' },
+    { command: 'prompt', description: '🎬 AI vositalar uchun prompt' },
+    { command: 'ovoz', description: '🔊 Matnni ovozga aylantirish' },
+    { command: 'fellar', description: "📘 Noto'g'ri fe'llar" },
+    { command: 'hafta', description: '📊 Haftalik hisobot' },
     { command: 'stop', description: '🛑 Rejimdan chiqish' },
     { command: 'clear', description: '🧹 Xotirani tozalash' },
     { command: 'status', description: '⚙️ Tizim holati' },
