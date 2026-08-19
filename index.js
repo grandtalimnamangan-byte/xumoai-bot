@@ -412,6 +412,7 @@ bot.start(async (ctx) => {
     ctx.reply(
         `${salom}, Humoyun. Men JARVIS — sizning shaxsiy AI assistentingizman.\n\n` +
         `Matn, rasm va ovozni tushunaman. Suhbat kontekstini eslab qolaman.\n\n` +
+        `🌅 /brifing — kunlik brifing\n` +
         `🎯 /bugun — bugungi 3 ta ustuvor ish\n` +
         `📁 /loyiha — loyihalar holati\n` +
         `💡 /gaoya — g'oyani saqlash\n` +
@@ -656,6 +657,9 @@ bot.command('ovoz', async (ctx) => {
     }
 });
 
+// ==================== ERTALABKI BRIFING ====================
+require('./briefing')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
+
 // ==================== SOG'LIQ MODULI ====================
 require('./health')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
 
@@ -757,6 +761,7 @@ bot.on('message', async (ctx) => {
 
 // ==================== KOMANDALAR MENYUSI ====================
 const COMMANDS = [
+    { command: 'brifing', description: '🌅 Kunlik brifing' },
     { command: 'bugun', description: '🎯 Bugungi 3 ta ustuvor ish' },
     { command: 'loyiha', description: '📁 Loyihalar (yangi / <slug>)' },
     { command: 'gaoya', description: "💡 G'oyani saqlash" },
