@@ -301,6 +301,29 @@ const TTS_VOICE = process.env.TTS_VOICE || 'Kore';
 const VOICE_REPLY = process.env.VOICE_REPLY !== 'false';
 const VOICE_MAX_CHARS = parseInt(process.env.VOICE_MAX_CHARS || '1200', 10);
 
+// PCM → MP3 (sof JS, ffmpeg kerak emas). Telegram sendAudio faqat MP3/M4A qabul qiladi.
+let lamejsCache = null;
+async function pcmToMp3(pcm, sampleRate) {
+    if (!lamejsCache) {
+        const mod = await import('@breezystack/lamejs');
+        lamejsCache = mod.default || mod;
+    }
+    const enc = new lamejsCache.Mp3Encoder(1, sampleRate, 64);
+    const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+    const out = [];
+    const block = 1152;
+
+    for (let i = 0; i < samples.length; i += block) {
+        const chunk = samples.subarray(i, Math.min(i + block, samples.length));
+        const buf = enc.encodeBuffer(chunk);
+        if (buf.length) out.push(Buffer.from(buf));
+    }
+    const end = enc.flush();
+    if (end.length) out.push(Buffer.from(end));
+
+    return Buffer.concat(out);
+}
+
 function pcmToWav(pcm, sampleRate) {
     const channels = 1, bits = 16;
     const h = Buffer.alloc(44);
@@ -357,16 +380,16 @@ async function ttsOnce(modelName, text) {
     }
 
     const rate = parseInt((part.inlineData.mimeType.match(/rate=(\d+)/) || [])[1] || '24000', 10);
-    return pcmToWav(Buffer.from(part.inlineData.data, 'base64'), rate);
+    return { pcm: Buffer.from(part.inlineData.data, 'base64'), rate };
 }
 
 async function textToSpeech(text) {
     const errors = [];
     for (const m of TTS_MODELS) {
         try {
-            const wav = await ttsOnce(m, text);
+            const audio = await ttsOnce(m, text);
             console.log(`TTS muvaffaqiyatli: ${m}`);
-            return wav;
+            return audio;
         } catch (e) {
             console.warn(`TTS ${m}: ${e.message}`);
             errors.push(`${m} → ${e.message}`);
@@ -390,28 +413,49 @@ function textForSpeech(md) {
         .trim();
 }
 
-// Ovozni Telegram'ga yuborish — uch xil usulni ketma-ket sinaymiz
-async function deliverAudio(ctx, wav, title = 'JARVIS') {
+// Ovozni Telegram'ga yetkazish.
+// Render bepul tarifi Buffer yuklashni o'tkazmaydi, shuning uchun havola birinchi.
+async function deliverAudio(ctx, audio, title = 'JARVIS') {
     const errors = [];
+    let mp3 = null;
 
-    // 1-usul: to'g'ridan-to'g'ri Buffer (Matnshunos shu yo'l bilan ishlagan)
     try {
-        await ctx.replyWithVoice({ source: wav, filename: 'jarvis.ogg' });
-        return true;
-    } catch (e) { errors.push(`voice/buffer: ${e.message}`); }
+        mp3 = await pcmToMp3(audio.pcm, audio.rate);
+        console.log(`MP3 tayyor: ${(mp3.length / 1024).toFixed(0)} KB`);
+    } catch (e) {
+        console.warn('MP3 kodlash xatosi:', e.message);
+        errors.push(`mp3-encode: ${e.message}`);
+    }
 
-    // 2-usul: audio sifatida Buffer
-    try {
-        await ctx.replyWithAudio({ source: wav, filename: 'jarvis.wav' }, { title });
-        return true;
-    } catch (e) { errors.push(`audio/buffer: ${e.message}`); }
+    // 1-usul: MP3 havola orqali (Telegram sendAudio faqat MP3/M4A qabul qiladi)
+    if (mp3) {
+        try {
+            const url = await uploadMedia(mp3, 'mp3', 'audio/mpeg');
 
-    // 3-usul: Supabase Storage havolasi orqali
+            // Havola haqiqatan ochiqmi — o'zimiz tekshiramiz
+            const check = await fetch(url, { method: 'GET' });
+            if (!check.ok) throw new Error(`havola ochilmadi: HTTP ${check.status}`);
+
+            await ctx.replyWithAudio(url, { title });
+            return true;
+        } catch (e) { errors.push(`mp3/url: ${e.message}`); }
+    }
+
+    // 2-usul: MP3 to'g'ridan-to'g'ri
+    if (mp3) {
+        try {
+            await ctx.replyWithAudio({ source: mp3, filename: 'jarvis.mp3' }, { title });
+            return true;
+        } catch (e) { errors.push(`mp3/buffer: ${e.message}`); }
+    }
+
+    // 3-usul: WAV hujjat sifatida havola orqali
     try {
+        const wav = pcmToWav(audio.pcm, audio.rate);
         const url = await uploadMedia(wav, 'wav', 'audio/wav');
-        await ctx.replyWithAudio(url, { title });
+        await ctx.replyWithDocument(url);
         return true;
-    } catch (e) { errors.push(`audio/url: ${e.message}`); }
+    } catch (e) { errors.push(`wav/url: ${e.message}`); }
 
     console.warn('Audio yuborilmadi:', errors.join(' | '));
     lastMediaError = errors.join('\n');
@@ -427,8 +471,8 @@ async function sendVoiceReply(ctx, rawText) {
     if (!speech || speech.length > VOICE_MAX_CHARS) return false;
 
     try {
-        const wav = await textToSpeech(speech);
-        return await deliverAudio(ctx, wav);
+        const audio = await textToSpeech(speech);
+        return await deliverAudio(ctx, audio);
     } catch (e) {
         console.warn('Ovozli javob yaratilmadi:', e.message);
         lastMediaError = e.message;
@@ -676,14 +720,14 @@ bot.command('ovoz', async (ctx) => {
     const msg = await ctx.reply('Ovoz tayyorlanyapti...');
     try {
         lastMediaError = null;
-        const wav = await textToSpeech(textForSpeech(input));
-        const ok = await deliverAudio(ctx, wav);
+        const audio = await textToSpeech(textForSpeech(input));
+        const ok = await deliverAudio(ctx, audio);
 
         if (ok) {
             await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
         } else {
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
-                `Ovoz yaratildi (${(wav.length / 1024 / 1024).toFixed(2)} MB), lekin yuborilmadi.\n\nUrinishlar:\n${lastMediaError}`);
+                `Ovoz yaratildi (${(audio.pcm.length / 1024).toFixed(0)} KB xom), lekin yuborilmadi.\n\nUrinishlar:\n${lastMediaError}`);
         }
     } catch (e) {
         await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined,
