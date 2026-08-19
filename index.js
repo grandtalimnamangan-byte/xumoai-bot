@@ -662,6 +662,9 @@ const COMMANDS = [
     { command: 'status',   description: "⚙️ Bot holati" },
     { command: 'models',   description: "📋 Mavjud modellar" },
     { command: 'start',    description: "🤖 Boshlash" },
+        { command: 'chunk',    description: "🧱 So'z birikmalari" },
+    { command: 'drill',    description: "⚡ Tez tarjima drilli" },
+    { command: 'talaffuz', description: "🗣 Talaffuz mashqi" },
 ];
 
 bot.telegram.setMyCommands(COMMANDS)
