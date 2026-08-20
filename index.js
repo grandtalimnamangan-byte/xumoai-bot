@@ -594,15 +594,12 @@ bot.start(async (ctx) => {
         `${salom}, Humoyun. Men JARVIS — sizning shaxsiy AI assistentingizman.\n\n` +
         `Matn, rasm va ovozni tushunaman. Suhbat kontekstini eslab qolaman.\n\n` +
         `🌅 /brifing — kunlik brifing\n` +
-        `🎯 /bugun — bugungi 3 ta ustuvor ish\n` +
-        `📁 /loyiha — loyihalar holati\n` +
-        `💡 /gaoya — g'oyani saqlash\n` +
-        `🧮 /hisob — moliyaviy hisob-kitob\n` +
-        `🛒 /harid — tovar tahlili\n` +
-        `🎬 /prompt — AI vositalar uchun prompt\n` +
+        `📌 /vazifalar — ochiq vazifalar\n` +
         `📚 /eng — ingliz tili darsi\n` +
-        `⚙️ /status — tizim holati\n\n` +
-        `To'liq ro'yxat: "/" tugmasi.`,
+        `🎙 /suhbatlash — ovozli suhbat\n` +
+        `❓ /yordam — barcha imkoniyatlar\n\n` +
+        `💡 Komanda yozish shart emas — shunchaki gapiring.\n` +
+        `"Ertaga soat 3 da Belissimo'ga qo'ng'iroq qilishim kerak" deb yozsangiz, o'zim vazifaga yozib qo'yaman.`,
         voiceKeyboard ? { reply_markup: voiceKeyboard } : undefined
     );
 });
@@ -854,8 +851,10 @@ bot.command('suhbat', async (ctx) => {
     );
 });
 
-// ==================== OVOZDAN VAZIFA AJRATISH ====================
-// Ovozli xabarda vazifa/g'oya aytilgan bo'lsa, avtomatik ajratib bazaga yozadi
+// ==================== MATN VA OVOZDAN VAZIFA AJRATISH ====================
+// Xabarda bajariladigan ish yoki g'oya aytilgan bo'lsa, avtomatik ajratib bazaga yozadi
+const CAPTURE_HINT = /(kerak|qilishim|qilaman|unutma|esla|yozib qo|ertaga|indinga|bugun|dushanba|seshanba|chorshanba|payshanba|juma|shanba|yakshanba|g'oya|goya|fikr keldi|qo'ng'iroq|uchrashuv|to'lash|yubor|tekshir|olish kerak)/i;
+
 async function extractFromVoice(ctx, transcriptHint, taskApi) {
     if (!supabase || !taskApi) return null;
 
@@ -866,12 +865,13 @@ async function extractFromVoice(ctx, transcriptHint, taskApi) {
         const gen = await genAI.getGenerativeModel({ model: MODEL }).generateContent(
             `Bugun: ${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date())}\n` +
             `Loyihalar: ${(projects || []).map((p) => `${p.id}=${p.slug}`).join(', ') || "yo'q"}\n\n` +
-            `Foydalanuvchi ovozli xabar yubordi. Uning mazmuni:\n"${transcriptHint}"\n\n` +
+            `Foydalanuvchi xabari:\n"${transcriptHint}"\n\n` +
             `Bu xabarda BAJARILISHI KERAK BO'LGAN ISHLAR yoki SAQLASH KERAK BO'LGAN G'OYALAR bormi?\n\n` +
             `MUHIM: agar bu shunchaki savol, so'rov yoki suhbat bo'lsa — bo'sh qaytar.\n` +
             `Faqat aniq harakat yoki g'oya aytilgan bo'lsa ajrat.\n\n` +
             `FAQAT JSON:\n` +
-            `{"confidence":0.0-1.0,"tasks":[{"title":"...","due_date":"YYYY-MM-DD yoki null","due_time":"HH:MM yoki null","project_id":raqam yoki null,"priority":1-5}],"ideas":[{"text":"...","project_id":raqam yoki null}]}`
+            `{"confidence":0.0-1.0,"is_question":true/false,"tasks":[{"title":"...","due_date":"YYYY-MM-DD yoki null","due_time":"HH:MM yoki null","project_id":raqam yoki null,"priority":1-5}],"ideas":[{"text":"...","project_id":raqam yoki null}]}\n\n` +
+            `is_question — xabarda javob kutilayotgan savol ham bormi.`
         );
 
         const clean = gen.response.text().replace(/```json|```/g, '').trim();
@@ -882,7 +882,7 @@ async function extractFromVoice(ctx, transcriptHint, taskApi) {
         if (!r || r.confidence < 0.7) return null;
         if (!r.tasks?.length && !r.ideas?.length) return null;
 
-        const saved = { tasks: [], ideas: [] };
+        const saved = { tasks: [], ideas: [], isQuestion: r.is_question !== false };
 
         for (const t of (r.tasks || []).slice(0, 8)) {
             try {
@@ -903,9 +903,24 @@ async function extractFromVoice(ctx, transcriptHint, taskApi) {
 
         return saved;
     } catch (e) {
-        console.warn('Ovozdan ajratish xatosi:', e.message);
+        console.warn('Ajratish xatosi:', e.message);
         return null;
     }
+}
+
+// Saqlanganlar ro'yxatini chiroyli ko'rsatish
+function savedSummary(saved) {
+    const lines = ['📥 Saqlandi'];
+    if (saved.tasks.length) {
+        lines.push('', `📌 Vazifalar (${saved.tasks.length}):`);
+        saved.tasks.forEach((t) => lines.push(`- ${t.title}${t.due_date ? ` — ${t.due_date}` : ''}`));
+    }
+    if (saved.ideas.length) {
+        lines.push('', `💡 G'oyalar (${saved.ideas.length}):`);
+        saved.ideas.forEach((i) => lines.push(`- ${i}`));
+    }
+    lines.push('', `/vazifalar · keraksizini: /ochir <raqam>`);
+    return lines.join('\n');
 }
 
 // Oxirgi to'liq javob — /matn uchun
@@ -1117,6 +1132,16 @@ bot.on('message', async (ctx) => {
     try {
         const history = await loadHistory(ctx.chat.id);
         const text = m.text || m.caption || "Ushbu faylni batafsil tahlil qilib, xulosa va g'oyalaringni yozib ber.";
+
+        // Matnda vazifa yoki g'oya aytilganmi — komandasiz ham tushunamiz
+        if (m.text && CAPTURE_HINT.test(text) && text.length < 600) {
+            const saved = await extractFromVoice(ctx, text, taskApi);
+            if (saved && (saved.tasks.length || saved.ideas.length)) {
+                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, savedSummary(saved));
+                if (!saved.isQuestion) return;   // faqat yozib qo'yish edi — javob shart emas
+            }
+        }
+
         const parts = [{ text }];
         let mediaNote = '';
 
@@ -1220,17 +1245,7 @@ bot.on('message', async (ctx) => {
         if (m.voice) {
             const saved = await extractFromVoice(ctx, text + ' ' + replyText.slice(0, 500), taskApi);
             if (saved && (saved.tasks.length || saved.ideas.length)) {
-                const lines = ['📥 Ovozdan ajratildi'];
-                if (saved.tasks.length) {
-                    lines.push('', `📌 Vazifalar (${saved.tasks.length}):`);
-                    saved.tasks.forEach((t) => lines.push(`- ${t.title}${t.due_date ? ` — ${t.due_date}` : ''}`));
-                }
-                if (saved.ideas.length) {
-                    lines.push('', `💡 G'oyalar (${saved.ideas.length}):`);
-                    saved.ideas.forEach((i) => lines.push(`- ${i}`));
-                }
-                lines.push('', `Ro'yxat: /vazifalar · Keraksizini: /ochir <raqam>`);
-                await ctx.reply(lines.join('\n'));
+                await ctx.reply(savedSummary(saved));
             }
         }
     } catch (error) {
@@ -1240,55 +1255,90 @@ bot.on('message', async (ctx) => {
     }
 });
 
+// ==================== BO'LIMLAR ====================
+bot.command(['ingliz', 'english'], (ctx) => ctx.reply(
+    `📚 Ingliz tili\n\n` +
+    `/eng — bugungi dars\n` +
+    `/word — so'z takrori (new / add)\n` +
+    `/chunk — so'z birikmalari\n` +
+    `/fellar — noto'g'ri fe'llar\n` +
+    `/drill — tez tarjima drilli\n` +
+    `/talaffuz — talaffuz mashqi\n` +
+    `/read — o'qish mashqi\n` +
+    `/listen — tinglash topshirig'i\n` +
+    `/essay — esse: mavzu + baholash\n` +
+    `/write — tayyor matnni baholash\n` +
+    `/ielts — IELTS Speaking imtihoni\n` +
+    `/speak — suhbat mashqi\n` +
+    `/xato — xatolar hisoboti\n` +
+    `/test — daraja tekshiruvi\n` +
+    `/progress — statistika\n` +
+    `/hafta — haftalik hisobot\n` +
+    `/reja — haftalik reja`
+));
+
+bot.command(['soglik', 'sogliq'], (ctx) => ctx.reply(
+    `🏋️ Sog'liq\n\n` +
+    `/menyu — bugungi ovqat rejasi\n` +
+    `/ovqat — yeganingizni yozish\n` +
+    `/suv — +1 stakan\n` +
+    `/sport — bugungi mashq\n` +
+    `/vazn — vaznni yozish\n` +
+    `/tahlil — haftalik tahlil\n` +
+    `/tana — tana sozlamalari`
+));
+
+bot.command(['ishlar', 'loyihalar'], (ctx) => ctx.reply(
+    `📁 Ishlar\n\n` +
+    `/bugun — bugungi 3 ta ustuvor ish\n` +
+    `/loyiha — loyihalar holati\n` +
+    `/gaoya — g'oyani saqlash\n` +
+    `/holat — loyiha holatini yangilash\n` +
+    `/hisob — moliyaviy hisob-kitob\n` +
+    `/harid — tovar tahlili\n` +
+    `/prompt — AI vositalar uchun prompt`
+));
+
+bot.command('sozlama', (ctx) => ctx.reply(
+    `⚙️ Sozlamalar\n\n` +
+    `/ovozi — ovozni tanlash\n` +
+    `/ovoz — matnni ovozga aylantirish\n` +
+    `/suhbat — ovozli rejim\n` +
+    `/matn — oxirgi javobni matnda\n` +
+    `/xotira — xotira holati\n` +
+    `/status — tizim holati\n` +
+    `/models — mavjud modellar\n` +
+    `/clear — xotirani tozalash\n` +
+    `/stop — rejimdan chiqish`
+));
+
+bot.command(['yordam', 'help'], (ctx) => ctx.reply(
+    `JARVIS — bo'limlar\n\n` +
+    `📚 /ingliz — ingliz tili (17 ta mashq)\n` +
+    `🏋️ /soglik — ovqat, suv, mashq\n` +
+    `📁 /ishlar — loyihalar, g'oyalar, hisob-kitob\n` +
+    `⚙️ /sozlama — ovoz, xotira, tizim\n\n` +
+    `Kundalik:\n` +
+    `/brifing · /vazifalar · /eng · /suhbatlash\n\n` +
+    `💡 Komanda yozish shart emas — shunchaki gapiring:\n` +
+    `"ertaga soat 3 da Belissimo'ga qo'ng'iroq qilishim kerak"\n` +
+    `deb yozsangiz, o'zim vazifaga yozib qo'yaman.`
+));
+
 // ==================== KOMANDALAR MENYUSI ====================
 const COMMANDS = [
     { command: 'brifing', description: '🌅 Kunlik brifing' },
     { command: 'vazifalar', description: '📌 Ochiq vazifalar' },
-    { command: 'vazifa', description: "➕ Vazifa qo'shish" },
     { command: 'bajardim', description: '✅ Vazifani yopish' },
-    { command: 'suhbat', description: '🎧 Ovozli rejim' },
-    { command: 'bugun', description: '🎯 Bugungi 3 ta ustuvor ish' },
-    { command: 'loyiha', description: '📁 Loyihalar (yangi / <slug>)' },
-    { command: 'gaoya', description: "💡 G'oyani saqlash" },
-    { command: 'holat', description: '🔄 Loyiha holatini yangilash' },
-    { command: 'menyu', description: '🍽 Bugungi ovqat rejasi' },
-    { command: 'ovqat', description: '🥗 Yeganingizni yozish' },
-    { command: 'suv', description: '💧 +1 stakan suv' },
-    { command: 'sport', description: '🏋️ Bugungi mashq' },
-    { command: 'vazn', description: '⚖️ Vaznni yozish' },
-    { command: 'tahlil', description: '📊 Haftalik sog\'liq tahlili' },
-    { command: 'tana', description: '📏 Tana sozlamalari' },
+    { command: 'suhbatlash', description: '🎙 Ovozli suhbat' },
     { command: 'eng', description: '📚 Bugungi dars' },
-    { command: 'word', description: "🔁 So'z takrori (new / add)" },
-    { command: 'chunk', description: "🧱 So'z birikmalari" },
-    { command: 'drill', description: '⚡ Tez tarjima drilli' },
-    { command: 'talaffuz', description: '🗣 Talaffuz mashqi' },
-    { command: 'xato', description: '📊 Xatolar hisoboti + mashq' },
-    { command: 'read', description: "📖 O'qish mashqi" },
-    { command: 'listen', description: "🎧 Tinglash topshirig'i" },
-    { command: 'essay', description: '✍️ Esse: mavzu + baholash' },
-    { command: 'ielts', description: '🎤 IELTS Speaking imtihoni' },
-    { command: 'speak', description: '💬 Suhbat mashqi' },
-    { command: 'write', description: '📝 Tayyor matnni baholash' },
-    { command: 'test', description: '🎯 Daraja tekshiruvi' },
-    { command: 'progress', description: '📈 Statistika' },
-    { command: 'reja', description: '📅 Haftalik reja' },
-    { command: 'hisob', description: '🧮 Moliyaviy hisob-kitob' },
-    { command: 'harid', description: '🛒 Tovar tahlili' },
-    { command: 'prompt', description: '🎬 AI vositalar uchun prompt' },
-    { command: 'ovoz', description: '🔊 Matnni ovozga aylantirish' },
-    { command: 'ovozi', description: '🎙 Ovozni tanlash' },
-    { command: 'matn', description: '📄 Oxirgi javobni matnda' },
-    { command: 'suhbatlash', description: '🎙 Ovozli suhbat (Mini App)' },
+    { command: 'word', description: "🔁 So'z takrori" },
     { command: 'esla', description: '🧠 Eski suhbatlardan qidirish' },
-    { command: 'xotira', description: '📊 Xotira holati' },
-    { command: 'fellar', description: "📘 Noto'g'ri fe'llar" },
-    { command: 'hafta', description: '📊 Haftalik hisobot' },
-    { command: 'stop', description: '🛑 Rejimdan chiqish' },
-    { command: 'clear', description: '🧹 Xotirani tozalash' },
-    { command: 'status', description: '⚙️ Tizim holati' },
-    { command: 'models', description: '📋 Mavjud modellar' },
-    { command: 'start', description: '🤖 Boshlash' },
+    { command: 'ingliz', description: '📖 Ingliz tili bo\'limi' },
+    { command: 'soglik', description: "🏋️ Sog'liq bo'limi" },
+    { command: 'ishlar', description: '📁 Ishlar bo\'limi' },
+    { command: 'sozlama', description: '⚙️ Sozlamalar' },
+    { command: 'yordam', description: '❓ Barcha imkoniyatlar' },
 ];
 
 bot.telegram.setMyCommands(COMMANDS)
