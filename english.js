@@ -30,18 +30,18 @@ To'liq mock testlar, vaqt boshqaruvi, xatolar ustida ish, murakkab tuzilmalar, r
 // Haftalik aylanma — har kuni so'z + grammatika, ustiga kunlik fokus
 const WEEK_FOCUS = {
     Mon: { name: 'Grammatika + birikmalar', cmd: '/chunk' },
-    Tue: { name: "Listening + noto'g'ri fe'llar", cmd: '/fellar' },
-    Wed: { name: 'Reading + talaffuz', cmd: '/talaffuz' },
+    Tue: { name: 'Tinglash (audio)', cmd: '/audio' },
+    Wed: { name: 'Artikl va predloglar', cmd: '/artikl' },
     Thu: { name: 'Writing / Essay', cmd: '/essay' },
     Fri: { name: 'Speaking (IELTS)', cmd: '/ielts' },
-    Sat: { name: 'Xatolar ustida ish + takror', cmd: '/xato' },
+    Sat: { name: 'Phrasal verbs + xatolar', cmd: '/phrasal' },
     Sun: { name: 'Haftalik hisobot + yengil takror', cmd: '/hafta' },
 };
 
 const FORMAT = `FORMATLASH: faqat **qalin**, *kursiv*, \`kod\` va "-" ro'yxatlardan foydalan. ### sarlavha, --- chiziq, jadval va > sitatadan FOYDALANMA. Bo'lim kerak bo'lsa emoji + **qalin sarlavha**.`;
 
 module.exports = function registerEnglish(bot, deps) {
-    const { genAI, MODEL, supabase, sendFormatted, myTelegramId, geminiApiKey } = deps;
+    const { genAI, MODEL, supabase, sendFormatted, myTelegramId, geminiApiKey, speak } = deps;
     const TTS_MODEL = process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts';
 
     const plain = () => genAI.getGenerativeModel({ model: MODEL });
@@ -446,9 +446,13 @@ Oxirida WORDS= qatori va alohida qatorda TOPIC=<mavzu nomi> yoz.`
             const footer = `\n\n📝 ${added} ta yangi so'z bazaga yozildi — **ertaga** /word da so'raladi.` +
                 (WEEK_FOCUS[wd].cmd ? `\n🎯 Bugungi fokus: ${WEEK_FOCUS[wd].name} → ${WEEK_FOCUS[wd].cmd}` : '');
 
+            const daysLeft = p.target_date
+                ? Math.round((new Date(p.target_date) - new Date(today())) / 86400000) : null;
+            const examTag = daysLeft != null ? ` · 🎯 ${daysLeft} kun` : '';
+
             const header = inRecovery
-                ? `🌱 **Kun ${newDay}** · Tiklanish rejimi · Eng uzun streak: ${bestStreak} kun`
-                : `🔥 **Kun ${newDay}** · Streak: ${streak}${bestStreak > streak ? ` (rekord: ${bestStreak})` : ''} · Daraja: ${p.level}`;
+                ? `🌱 **Kun ${newDay}** · Tiklanish rejimi · Eng uzun streak: ${bestStreak} kun${examTag}`
+                : `🔥 **Kun ${newDay}** · Streak: ${streak}${bestStreak > streak ? ` (rekord: ${bestStreak})` : ''} · Daraja: ${p.level}${examTag}`;
 
             await sendFormatted(ctx, msg.message_id, `${header}\n\n${lesson}${footer}`);
 
@@ -1588,6 +1592,307 @@ ${FORMAT}`
         }
     });
 
+    // ==================== /audio — HAQIQIY AUDIO TINGLASH ====================
+    bot.command(['audio', 'diktant'], async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        if (!speak) return ctx.reply("Ovoz moduli ulanmagan.");
+
+        const arg = ctx.message.text.replace(/^\/(audio|diktant)(@\S+)?\s*/i, '').trim().toLowerCase();
+        const isDictation = /diktant|dikt/i.test(arg) || /^\/diktant/i.test(ctx.message.text);
+
+        const msg = await ctx.reply('🎧 Audio tayyorlanyapti...');
+        try {
+            const p = await getProfile(ctx.chat.id);
+
+            const gen = await plain().generateContent(
+                `${p.level} darajadagi o'zbek o'quvchisi uchun ${isDictation ? 'DIKTANT' : 'TINGLASH'} mashqi tuz.\n\n` +
+                (isDictation
+                    ? `4-6 ta qisqa inglizcha gap yoz (har biri 6-10 so'z). O'quvchi ularni eshitib yozib oladi.\n` +
+                      `Gaplar o'quvchining zaif nuqtalariga tegsin: ${(p.weak_points || []).join(', ') || 'oddiy zamonlar'}.\n\n` +
+                      `FAQAT JSON: {"script":"gaplar, har biri yangi qatorda","questions":[],"answers":[]}`
+                    : `1. 70-100 so'zlik tabiiy inglizcha matn (dialog yoki qisqa hikoya). Kundalik mavzu.\n` +
+                      `2. Shu matn bo'yicha 4 ta tushunish savoli (inglizcha).\n\n` +
+                      `FAQAT JSON: {"script":"...","questions":["1. ...","2. ..."],"answers":["...","..."]}`)
+            );
+
+            const data = parseJson(gen.response.text());
+            if (!data?.script) throw new Error('Matn olinmadi');
+
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, '🔊 Ovozga aylantirilyapti...');
+
+            const sent = await speak(ctx, data.script);
+            if (!sent) throw new Error('Audio yuborilmadi');
+
+            data.isDictation = isDictation;
+            sessions.set(ctx.chat.id, { type: 'audio_test', data });
+            await setMode(ctx.chat.id, 'audio_test');
+
+            await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
+
+            await ctx.reply(isDictation
+                ? `✍️ Diktant\n\nAudioni tinglang va eshitgan gaplaringizni yozing.\nHar gapni yangi qatordan.\n\n2 marta tinglashingiz mumkin. Bekor qilish: /stop`
+                : `🎧 Savollar\n\n${data.questions.join('\n')}\n\nJavoblarni bitta xabarda raqamlab yozing.`);
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeAudio(ctx, answer) {
+        const d = await guardSession(ctx, 'audio_test');
+        if (!d) return;
+
+        const msg = await ctx.reply('📊 Tekshirilyapti...');
+        try {
+            const prompt = d.isDictation
+                ? `Diktant matni (asl):\n${d.script}\n\nO'quvchi yozgani:\n${answer}\n\n` +
+                  `Har gapni asl bilan solishtir:\n` +
+                  `- To'liq to'g'ri bo'lsa ✅\n` +
+                  `- Farq bo'lsa ❌ va aynan qaysi so'z noto'g'ri eshitilgan yoki yozilganini ko'rsat\n` +
+                  `- Imlo xatosini alohida belgila\n\n` +
+                  `Oxirida: **Natija: X/${d.script.split('\n').filter(Boolean).length}** va eng ko'p qoqilgan tovush yoki qoida.\n` +
+                  `${MISTAKE_SPEC}\n\n${FORMAT}`
+                : `Matn:\n${d.script}\n\nSavollar:\n${d.questions.join('\n')}\nTo'g'ri javoblar:\n${d.answers.join('\n')}\n\n` +
+                  `O'quvchi javoblari:\n${answer}\n\n` +
+                  `Har savolni tekshir: ✅/❌ + to'g'ri javob + matnning qaysi joyidan.\n` +
+                  `Oxirida **Natija: X/${d.questions.length}**.\n${MISTAKE_SPEC}\n\n${FORMAT}`;
+
+            const gen = await plain().generateContent(prompt);
+            const out = gen.response.text();
+            const mistakes = await recordMistakes(ctx.chat.id, out);
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, d.isDictation ? 'dictation' : 'listening');
+
+            await sendFormatted(ctx, msg.message_id,
+                `${stripMeta(out)}\n\n📄 **Asl matn:**\n${d.script}` +
+                `${mistakes ? `\n\n📝 ${mistakes} ta xato jurnaliga yozildi.` : ''}`);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /artikl — ARTIKL VA PREDLOGLAR ====================
+    // O'zbek tilida artikl yo'q — bu eng ko'p xato qilinadigan joy
+    const GRAM_TOPICS = [
+        { id: 'a-an', name: 'a / an', rule: "Noaniq artikl. Undosh oldidan a, unli oldidan an. O'zbek tilida yo'q — shuning uchun unutiladi" },
+        { id: 'the', name: 'the', rule: 'Aniq artikl. Suhbatda ikkinchi marta eslatilgan yoki yagona narsa oldidan' },
+        { id: 'no-article', name: 'Artiklsiz holatlar', rule: "Ko'plik umumiy ma'noda, sanalmaydigan otlar, tillar, mamlakatlar (ko'pchiligi)" },
+        { id: 'in-on-at-time', name: 'in / on / at — vaqt', rule: 'at soat, on kun va sana, in oy yil va davr' },
+        { id: 'in-on-at-place', name: 'in / on / at — joy', rule: 'in ichida, on ustida yoki sirtida, at aniq nuqtada' },
+        { id: 'to-for', name: 'to / for', rule: "to yo'nalish va qabul qiluvchi, for maqsad va foyda" },
+        { id: 'of-from', name: 'of / from', rule: 'of tegishlilik, from manba va boshlanish nuqtasi' },
+        { id: 'by-with', name: 'by / with', rule: 'by usul va ijrochi, with vosita va hamrohlik' },
+        { id: 'verb-prep', name: "Fe'l + predlog", rule: "listen TO, wait FOR, depend ON, look AT — yodlanadi, mantiq yo'q" },
+        { id: 'adj-prep', name: 'Sifat + predlog', rule: 'good AT, interested IN, afraid OF, married TO' },
+    ];
+
+    bot.command(['artikl', 'gram'], async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+
+        try {
+            const { count } = await supabase.from('eng_log')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', ctx.chat.id).eq('activity', 'grammar_drill');
+
+            const t = GRAM_TOPICS[(count || 0) % GRAM_TOPICS.length];
+            const msg = await ctx.reply('📐 Mashq tayyorlanyapti...');
+
+            const gen = await plain().generateContent(
+                `O'zbek o'quvchisi uchun "${t.name}" mavzusida mashq tuz.\nQoida: ${t.rule}\n\n` +
+                `1. 📖 **Qoida** — o'zbekcha, 4-5 jumla. O'zbek tilida bu qanday ifodalanishini solishtir.\n` +
+                `2. ⚠️ **O'zbeklar qiladigan xato** — 2 ta aniq misol: noto'g'ri → to'g'ri.\n` +
+                `3. 🧩 **12 ta mashq** — bo'sh joyni to'ldirish. Aralash: oson va qiyin. Ba'zisida hech narsa kerak emas (artiklsiz holat).\n` +
+                `4. ✍️ **3 ta tarjima** — o'zbekchadan inglizchaga, shu mavzuga tegishli.\n\n` +
+                `Javoblarni BERMA. Qisqa yoz.\n\n${FORMAT}`
+            );
+
+            sessions.set(ctx.chat.id, { type: 'gram_drill', data: { topic: t.name, text: gen.response.text() } });
+            await setMode(ctx.chat.id, 'gram_drill');
+
+            await sendFormatted(ctx, msg.message_id,
+                `📐 **${t.name}** · ${(count || 0) % GRAM_TOPICS.length + 1}/${GRAM_TOPICS.length}\n\n${gen.response.text()}`);
+        } catch (e) {
+            ctx.reply(`Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeGram(ctx, answer) {
+        const d = await guardSession(ctx, 'gram_drill');
+        if (!d) return;
+
+        const msg = await ctx.reply('📊 Tekshirilyapti...');
+        try {
+            const gen = await plain().generateContent(
+                `Mavzu: ${d.topic}\n\nTopshiriqlar:\n${d.text}\n\nO'quvchi javoblari:\n${answer}\n\n` +
+                `Har javobni tekshir: ✅/❌ + to'g'ri variant + NEGA shunday (qisqa, o'zbekcha).\n` +
+                `Artiklsiz holatni to'g'ri topgan bo'lsa alohida ta'kidla.\n` +
+                `Oxirida natija va 1 ta eslab qolish usuli.\n${MISTAKE_SPEC}\n\n${FORMAT}`
+            );
+
+            const out = gen.response.text();
+            const mistakes = await recordMistakes(ctx.chat.id, out);
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'grammar_drill', null, d.topic);
+
+            await sendFormatted(ctx, msg.message_id,
+                `${stripMeta(out)}${mistakes ? `\n\n📝 ${mistakes} ta xato jurnaliga yozildi.` : ''}\n\nKeyingi mavzu: /artikl`);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /phrasal — PHRASAL VERBS ====================
+    const PHRASAL_GROUPS = [
+        { name: 'get', verbs: ['get up — turmoq', 'get on — chiqmoq (transport)', 'get off — tushmoq', 'get over — yengmoq', 'get along — chiqishmoq', 'get back — qaytmoq'] },
+        { name: 'take', verbs: ['take off — uchmoq / yechmoq', 'take on — qabul qilmoq (ish)', 'take up — boshlamoq (mashg\'ulot)', 'take out — olib chiqmoq', 'take after — o\'xshamoq', 'take over — egallamoq'] },
+        { name: 'put', verbs: ['put on — kiymoq', 'put off — kechiktirmoq', 'put up with — chidamoq', 'put down — qo\'ymoq', 'put out — o\'chirmoq', 'put together — yig\'moq'] },
+        { name: 'look', verbs: ['look for — qidirmoq', 'look after — qaramoq', 'look up — qidirib topmoq', 'look forward to — intizor bo\'lmoq', 'look into — o\'rganmoq', 'look out — ehtiyot bo\'lmoq'] },
+        { name: 'go', verbs: ['go on — davom etmoq', 'go out — chiqmoq', 'go through — boshdan kechirmoq', 'go over — ko\'rib chiqmoq', 'go back — qaytmoq', 'go off — portlamoq / buzilmoq'] },
+        { name: 'come', verbs: ['come up with — o\'ylab topmoq', 'come across — duch kelmoq', 'come back — qaytmoq', 'come in — kirmoq', 'come out — chiqmoq', 'come over — kelmoq (mehmonga)'] },
+        { name: 'turn', verbs: ['turn on — yoqmoq', 'turn off — o\'chirmoq', 'turn up — kelib qolmoq', 'turn down — rad etmoq', 'turn into — aylanmoq', 'turn around — burilmoq'] },
+        { name: 'work / run / break', verbs: ['work out — mashq qilmoq / hal bo\'lmoq', 'run out of — tugamoq', 'run into — uchrab qolmoq', 'break down — buzilmoq', 'break up — ajrashmoq', 'break into — bostirib kirmoq'] },
+    ];
+
+    bot.command('phrasal', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+
+        try {
+            const { count } = await supabase.from('eng_log')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', ctx.chat.id).eq('activity', 'phrasal');
+
+            const gi = (count || 0) % PHRASAL_GROUPS.length;
+            const g = PHRASAL_GROUPS[gi];
+            const msg = await ctx.reply('🔗 Guruh tayyorlanyapti...');
+
+            // Bazaga qo'shamiz — takror tizimiga tushadi
+            await addWords(ctx.chat.id, g.verbs.map((v) => {
+                const [word, meaning] = v.split(' — ');
+                return { word, meaning };
+            }), 'chunk');
+
+            const gen = await plain().generateContent(
+                `O'zbek o'quvchisi "${g.name}" ildizli phrasal verb larni o'rganyapti.\n` +
+                `Iboralar: ${g.verbs.join('; ')}\n\n` +
+                `1. 🧠 **Mantiq** — bu guruhda predlog ma'noni qanday o'zgartirishini tushuntir (up, off, out, over ning umumiy mantiqi).\n` +
+                `2. 🧩 **8 ta mashq** — gapda to'g'ri phrasal verb ni qo'yish. Kontekst Humoyunning hayotidan: SMM, o'quv markazi, kontent.\n` +
+                `3. ✍️ **3 ta tarjima** — o'zbekchadan inglizchaga.\n\n` +
+                `Javoblarni BERMA. Qisqa yoz.\n\n${FORMAT}`
+            );
+
+            sessions.set(ctx.chat.id, { type: 'phrasal', data: { group: g.name, verbs: g.verbs, text: gen.response.text() } });
+            await setMode(ctx.chat.id, 'phrasal');
+
+            await sendFormatted(ctx, msg.message_id,
+                `🔗 **Phrasal verbs — ${g.name}** · ${gi + 1}/${PHRASAL_GROUPS.length}\n\n` +
+                g.verbs.map((v, i) => `${i + 1}. ${v}`).join('\n') +
+                `\n\n${gen.response.text()}\n\n📝 ${g.verbs.length} ta ibora bazaga yozildi.`);
+        } catch (e) {
+            ctx.reply(`Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradePhrasal(ctx, answer) {
+        const d = await guardSession(ctx, 'phrasal');
+        if (!d) return;
+
+        const msg = await ctx.reply('📊 Tekshirilyapti...');
+        try {
+            const gen = await plain().generateContent(
+                `Guruh: ${d.group}\nIboralar: ${d.verbs.join('; ')}\n\n` +
+                `Topshiriqlar:\n${d.text}\n\nO'quvchi javoblari:\n${answer}\n\n` +
+                `Har javobni tekshir: ✅/❌ + to'g'ri ibora + ma'no farqi.\n` +
+                `Predlog noto'g'ri bo'lsa (get on / get off) alohida ko'rsat.\n` +
+                `Oxirida natija.\n${MISTAKE_SPEC}\n\n${FORMAT}`
+            );
+
+            const out = gen.response.text();
+            const mistakes = await recordMistakes(ctx.chat.id, out);
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await logActivity(ctx.chat.id, 'phrasal', null, d.group);
+
+            await sendFormatted(ctx, msg.message_id,
+                `${stripMeta(out)}${mistakes ? `\n\n📝 ${mistakes} ta xato jurnaliga yozildi.` : ''}\n\nKeyingi guruh: /phrasal`);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
+        }
+    }
+
+    // ==================== /imtihon — SANA VA ORQAGA HISOB ====================
+    bot.command('imtihon', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const arg = ctx.message.text.replace(/^\/imtihon(@\S+)?\s*/i, '').trim();
+        const p = await getProfile(ctx.chat.id);
+
+        if (!arg) {
+            if (!p?.target_date) {
+                return ctx.reply(
+                    "🎯 Imtihon sanasi belgilanmagan.\n\n" +
+                    "Sana qo'yish: /imtihon 2027-06-15\n\n" +
+                    "Sana bo'lmasa reja ham bo'lmaydi — JARVIS orqaga hisoblab bosqichlarni belgilaydi."
+                );
+            }
+
+            const days = Math.round((new Date(p.target_date) - new Date(today())) / 86400000);
+            const msg = await ctx.reply('Hisoblanyapti...');
+
+            const { count: vocab } = await supabase.from('eng_vocab')
+                .select('*', { count: 'exact', head: true }).eq('chat_id', ctx.chat.id);
+            const { data: bands } = await supabase.from('eng_log')
+                .select('score').eq('chat_id', ctx.chat.id)
+                .in('activity', ['essay', 'writing', 'speaking'])
+                .not('score', 'is', null).order('created_at', { ascending: false }).limit(5);
+
+            const avgBand = bands?.length
+                ? (bands.reduce((a, b) => a + b.score, 0) / bands.length).toFixed(1) : null;
+
+            const gen = await plain().generateContent(
+                `O'quvchi IELTS ga tayyorlanyapti.\n` +
+                `Imtihon sanasi: ${p.target_date} (${days} kun qoldi)\n` +
+                `Hozirgi daraja: ${p.level}\n` +
+                `Dastur kuni: ${p.day_number}\n` +
+                `So'z bazasi: ${vocab || 0} ta\n` +
+                `O'rtacha band: ${avgBand || 'hali yo\'q'}\n` +
+                `Streak: ${p.streak} kun\n\n` +
+                `Yoz:\n` +
+                `1. 🎯 **Bosqichlar** — imtihongacha qaysi darajaga qachon chiqish kerak (sanalar bilan, 3-4 bosqich).\n` +
+                `2. 📊 **Hozirgi holat** — belgilangan sur'atdan orqadami yoki oldinda. HALOL bahola.\n` +
+                `3. ⚡ **Nima o'zgarishi kerak** — 2 ta aniq harakat.\n\n` +
+                `${days < 180 ? 'Vaqt kam — buni ochiq ayt.' : ''}\n` +
+                `Qisqa yoz. Bo'sh ruhlantirish yozma.\n\n${FORMAT}`
+            );
+
+            return sendFormatted(ctx, msg.message_id,
+                `🎯 **Imtihongacha ${days} kun** (${p.target_date})\n\n${gen.response.text()}`);
+        }
+
+        const d = arg.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (!d) return ctx.reply('Format: /imtihon 2027-06-15');
+
+        const target = d[0];
+        if (new Date(target) <= new Date(today())) return ctx.reply("Sana kelajakda bo'lishi kerak.");
+
+        await saveProfile(ctx.chat.id, { target_date: target });
+        const days = Math.round((new Date(target) - new Date(today())) / 86400000);
+
+        ctx.reply(
+            `🎯 Imtihon sanasi: ${target}\n` +
+            `⏳ ${days} kun qoldi\n\n` +
+            `Endi har darsda qolgan kun ko'rsatiladi.\nReja: /imtihon`
+        );
+    });
+
     // ==================== /progress ====================
     bot.command('progress', async (ctx) => {
         if (!supabase) return ctx.reply(noDb());
@@ -1700,6 +2005,9 @@ ${FORMAT}`
         if (p.mode === 'chunk_use' && txt) return gradeChunkUse(ctx, txt);
         if (p.mode === 'drill' && txt) return gradeDrill(ctx, txt);
         if (p.mode === 'verbs' && txt) return gradeVerbs(ctx, txt);
+        if (p.mode === 'audio_test' && txt) return gradeAudio(ctx, txt);
+        if (p.mode === 'gram_drill' && txt) return gradeGram(ctx, txt);
+        if (p.mode === 'phrasal' && txt) return gradePhrasal(ctx, txt);
 
         if (p.mode === 'pronunciation') {
             return gradePronunciation(ctx, await getVoicePart());

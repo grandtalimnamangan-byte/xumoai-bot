@@ -1118,7 +1118,14 @@ require('./health')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId }
 require('./projects')(bot, { genAI, MODEL, supabase, sendFormatted });
 
 // ==================== INGLIZ TILI MODULI ====================
-require('./english')(bot, { genAI, MODEL, supabase, sendFormatted, esc, myTelegramId, geminiApiKey });
+require('./english')(bot, {
+    genAI, MODEL, supabase, sendFormatted, esc, myTelegramId, geminiApiKey,
+    // Ovoz yuborish — index.js dagi ishlaydigan yo'l
+    speak: async (ctx, text) => {
+        const audio = await textToSpeech(text);
+        return deliverAudio(ctx, audio, 'JARVIS');
+    },
+});
 
 // ==================== HISOB-KITOBNI AVTOMATIK ANIQLASH ====================
 const CALC_HINT = /(hisobla|hisob-kitob|foiz|foyda|zarar|chegirma|marja|ustama|tannarx|qqs|nds|kredit|bo['’]?lib to['’]?lash|oylik to['’]?lov|jami qancha|qancha bo['’]?ladi|necha foiz|rentabellik|aylanma)/i;
@@ -1316,6 +1323,11 @@ bot.command(['ingliz', 'english'], (ctx) => ctx.reply(
     `/word — so'z takrori (new / add)\n` +
     `/chunk — so'z birikmalari\n` +
     `/fellar — noto'g'ri fe'llar\n` +
+    `/phrasal — phrasal verbs\n` +
+    `/artikl — artikl va predloglar\n` +
+    `/audio — tinglash (audio bilan)\n` +
+    `/diktant — diktant\n` +
+    `/imtihon — imtihon sanasi va reja\n` +
     `/drill — tez tarjima drilli\n` +
     `/talaffuz — talaffuz mashqi\n` +
     `/read — o'qish mashqi\n` +
