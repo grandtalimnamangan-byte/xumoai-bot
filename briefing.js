@@ -90,36 +90,6 @@ module.exports = function registerBriefing(bot, deps) {
             }
         } catch (e) { console.warn('Ingliz:', e.message); }
 
-        // --- Sog'liq ---
-        try {
-            const { data: hp } = await supabase.from('health_profile')
-                .select('*').eq('chat_id', chatId).maybeSingle();
-            data.health = hp;
-
-            if (hp) {
-                const y = addDays(-1);
-                const { data: food } = await supabase.from('food_log')
-                    .select('kcal, protein').eq('chat_id', chatId).eq('day', y);
-                const { data: water } = await supabase.from('water_log')
-                    .select('glasses').eq('chat_id', chatId).eq('day', y).maybeSingle();
-                const { data: work } = await supabase.from('workout_log')
-                    .select('day').eq('chat_id', chatId).gte('day', addDays(-7));
-
-                data.yesterday = {
-                    kcal: (food || []).reduce((a, f) => a + (f.kcal || 0), 0),
-                    protein: (food || []).reduce((a, f) => a + (f.protein || 0), 0),
-                    water: water?.glasses || 0,
-                    logged: (food || []).length > 0,
-                };
-                data.workoutsThisWeek = new Set((work || []).map((w) => w.day)).size;
-                data.isWorkoutDay = ['Mon', 'Tue', 'Thu', 'Fri'].includes(weekday());
-
-                const { data: wk } = await supabase.from('workout_log')
-                    .select('id').eq('chat_id', chatId).eq('day', today()).limit(1);
-                data.workoutDoneToday = (wk || []).length > 0;
-            }
-        } catch (e) { console.warn('Sog\'liq:', e.message); }
-
         return data;
     }
 
@@ -172,24 +142,6 @@ module.exports = function registerBriefing(bot, deps) {
             if (d.engDoneToday) lines.push(`✅ Bugungi dars bajarilgan`);
             else lines.push(`▶️ /eng — bugungi dars`);
             if (d.engMissedYesterday) lines.push(`⚠️ Kecha dars bo'lmagan — streak xavf ostida`);
-        }
-
-        // --- Sog'liq ---
-        if (d.health) {
-            const y = d.yesterday;
-            lines.push('', `🏋️ **Sog'liq**`);
-
-            if (y?.logged) {
-                const protOk = y.protein >= d.health.protein_target * 0.85;
-                lines.push(`Kecha: ${y.kcal} kkal · ${y.protein}g oqsil ${protOk ? '✅' : '⚠️'} · ${y.water} stakan suv`);
-                if (!protOk) lines.push(`Oqsil past qolgan — bugun nonushtaga tuxum yoki suzma.`);
-            } else {
-                lines.push(`Kecha ovqat yozilmagan.`);
-            }
-
-            lines.push(`Bu hafta mashqlar: ${d.workoutsThisWeek}/${d.health.workout_days}`);
-            if (d.isWorkoutDay && !d.workoutDoneToday) lines.push(`▶️ Bugun mashq kuni — /sport`);
-            else if (!d.isWorkoutDay) lines.push(`Bugun dam olish kuni.`);
         }
 
         // --- Yakuniy jumla ---

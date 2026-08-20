@@ -1111,9 +1111,6 @@ const taskApi = require('./tasks')(bot, { genAI, MODEL, supabase, sendFormatted,
 // ==================== ERTALABKI BRIFING ====================
 require('./briefing')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId, sendVoiceReply });
 
-// ==================== SOG'LIQ MODULI ====================
-require('./health')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
-
 // ==================== LOYIHALAR MIYASI ====================
 require('./projects')(bot, { genAI, MODEL, supabase, sendFormatted });
 
@@ -1343,17 +1340,6 @@ bot.command(['ingliz', 'english'], (ctx) => ctx.reply(
     `/reja — haftalik reja`
 ));
 
-bot.command(['soglik', 'sogliq'], (ctx) => ctx.reply(
-    `🏋️ Sog'liq\n\n` +
-    `/menyu — bugungi ovqat rejasi\n` +
-    `/ovqat — yeganingizni yozish\n` +
-    `/suv — +1 stakan\n` +
-    `/sport — bugungi mashq\n` +
-    `/vazn — vaznni yozish\n` +
-    `/tahlil — haftalik tahlil\n` +
-    `/tana — tana sozlamalari`
-));
-
 bot.command(['ishlar', 'loyihalar'], (ctx) => ctx.reply(
     `📁 Ishlar\n\n` +
     `/bugun — bugungi 3 ta ustuvor ish\n` +
@@ -1381,7 +1367,6 @@ bot.command('sozlama', (ctx) => ctx.reply(
 bot.command(['yordam', 'help'], (ctx) => ctx.reply(
     `JARVIS — bo'limlar\n\n` +
     `📚 /ingliz — ingliz tili (17 ta mashq)\n` +
-    `🏋️ /soglik — ovqat, suv, mashq\n` +
     `📁 /ishlar — loyihalar, g'oyalar, hisob-kitob\n` +
     `⚙️ /sozlama — ovoz, xotira, tizim\n\n` +
     `Kundalik:\n` +
@@ -1401,7 +1386,6 @@ const COMMANDS = [
     { command: 'word', description: "🔁 So'z takrori" },
     { command: 'esla', description: '🧠 Eski suhbatlardan qidirish' },
     { command: 'ingliz', description: '📖 Ingliz tili bo\'limi' },
-    { command: 'soglik', description: "🏋️ Sog'liq bo'limi" },
     { command: 'ishlar', description: '📁 Ishlar bo\'limi' },
     { command: 'sozlama', description: '⚙️ Sozlamalar' },
     { command: 'yordam', description: '❓ Barcha imkoniyatlar' },
