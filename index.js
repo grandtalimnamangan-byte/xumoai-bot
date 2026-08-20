@@ -610,6 +610,7 @@ bot.command('status', async (ctx) => {
         `🌐 Qidiruv: ${ENABLE_SEARCH ? 'yoqilgan' : "o'chirilgan"}\n` +
         `🔊 Ovozli javob: ${VOICE_REPLY && supabase ? 'yoqilgan' : "o'chirilgan"}\n` +
         `🎙 Ovoz: ${currentVoice} (${VOICES[currentVoice] || ""})\n` +
+        `🧠 Cheksiz xotira: ${process.env.MEMORY_ON === 'false' ? "o'chirilgan" : 'yoqilgan'} — /xotira\n` +
         `📦 Media ombori: ${supabase ? BUCKET : "yo'q"}\n` +
         `🧮 Hisob kodi ko'rinishi: ${SHOW_CODE ? 'yoqilgan' : "o'chirilgan"}`
     );
@@ -665,6 +666,8 @@ bot.command('hisob', async (ctx) => {
             { role: 'user', parts: [{ text: `[hisob] ${input}` }] },
             { role: 'model', parts: [{ text: replyText }] },
         ].slice(-MAX_HISTORY));
+
+        memoryApi.remember(ctx.chat.id, `Hisob-kitob: ${input}\n\nNatija: ${replyText.slice(0, 2500)}`, 'hisob').catch(() => {});
 
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
     } catch (error) {
@@ -725,6 +728,8 @@ Javobda albatta shu bo'limlar bo'lsin:
             { role: 'user', parts: [{ text: `[harid] ${input}` }] },
             { role: 'model', parts: [{ text: replyText }] },
         ].slice(-MAX_HISTORY));
+
+        memoryApi.remember(ctx.chat.id, `Xarid tahlili: ${input}\n\n${replyText.slice(0, 2500)}`, 'harid').catch(() => {});
 
         await sendFormatted(ctx, loadingMsg.message_id, replyText);
     } catch (error) {
@@ -1022,6 +1027,9 @@ bot.command('ovoz', async (ctx) => {
     }
 });
 
+// ==================== CHEKSIZ XOTIRA ====================
+const memoryApi = require('./memory')(bot, { genAI, MODEL, supabase, sendFormatted, geminiApiKey });
+
 // ==================== VAZIFALAR ====================
 const taskApi = require('./tasks')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
 
@@ -1081,6 +1089,15 @@ bot.on('message', async (ctx) => {
             }
         }
 
+        // Cheksiz xotiradan mavzuga oid eski yozuvlarni topamiz
+        let recalled = [];
+        if (m.text && !m.photo && !m.document) {
+            recalled = await memoryApi.recall(ctx.chat.id, text);
+        }
+
+        const contextText = recalled.length ? memoryApi.asContext(recalled) : '';
+        if (contextText) parts[0].text = text + contextText;
+
         const request = { contents: [...history, { role: 'user', parts }] };
         const isCalc = !m.photo && !m.voice && !m.audio && !m.document
             && hasNumber(text) && CALC_HINT.test(text);
@@ -1115,6 +1132,13 @@ bot.on('message', async (ctx) => {
             { role: 'user', parts: [{ text: text + mediaNote }] },
             { role: 'model', parts: [{ text: replyText }] },
         ].slice(-MAX_HISTORY));
+
+        // Cheksiz xotiraga yozamiz (fon rejimida — javobni kutdirmaydi)
+        memoryApi.remember(
+            ctx.chat.id,
+            `Humoyun: ${text}${mediaNote}\n\nJARVIS: ${replyText.slice(0, 3000)}`,
+            'suhbat'
+        ).catch(() => {});
 
         // Ovozli xabarga javob: OVOZ birinchi, ostiga qisqa matn xulosa
         if (m.voice) {
@@ -1198,6 +1222,8 @@ const COMMANDS = [
     { command: 'ovoz', description: '🔊 Matnni ovozga aylantirish' },
     { command: 'ovozi', description: '🎙 Ovozni tanlash' },
     { command: 'matn', description: '📄 Oxirgi javobni matnda' },
+    { command: 'esla', description: '🧠 Eski suhbatlardan qidirish' },
+    { command: 'xotira', description: '📊 Xotira holati' },
     { command: 'fellar', description: "📘 Noto'g'ri fe'llar" },
     { command: 'hafta', description: '📊 Haftalik hisobot' },
     { command: 'stop', description: '🛑 Rejimdan chiqish' },
