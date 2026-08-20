@@ -132,7 +132,9 @@ ${FORMAT}`,
 
     async function setMode(chatId, mode) {
         if (!supabase) return;
-        await supabase.from('eng_profile').update({ mode }).eq('chat_id', chatId);
+        await supabase.from('eng_profile')
+            .update({ mode, mode_at: mode ? new Date().toISOString() : null })
+            .eq('chat_id', chatId);
     }
 
     async function logActivity(chatId, activity, score = null, notes = null) {
@@ -1649,12 +1651,36 @@ ${FORMAT}`
     });
 
     // ==================== REJIM USHLAGICHI ====================
+    const MODE_TTL_MS = 3 * 60 * 60 * 1000;   // rejim 3 soatdan keyin o'zi yopiladi
+
+    // Dars rejimida faqat javobga o'xshagan xabarni ushlaymiz
+    function looksLikeAnswers(t) {
+        if (!t) return false;
+        const numbered = (t.match(/^\s*\d+[.)]/gm) || []).length;
+        if (numbered >= 2) return true;                       // raqamlangan javoblar
+        if (/^\s*\d+[.)]/.test(t) && t.length > 15) return true;
+        if (/\b(is|are|am|was|were|do|does|did|have|has|will|going to)\b/i.test(t) && t.length > 25) return true;
+        return false;
+    }
+
     bot.on('message', async (ctx, next) => {
         if (!supabase) return next();
         if (ctx.message.text && ctx.message.text.startsWith('/')) return next();
 
         const p = await getProfile(ctx.chat.id);
         if (!p?.mode) return next();
+
+        // Rejim eskirganmi — o'zi yopiladi
+        if (p.mode_at && Date.now() - new Date(p.mode_at).getTime() > MODE_TTL_MS) {
+            await setMode(ctx.chat.id, null);
+            sessions.delete(ctx.chat.id);
+            return next();
+        }
+
+        // Hujjat, rasm yoki ovoz kelsa — dars rejimi aralashmaydi
+        if (p.mode === 'lesson' && (ctx.message.document || ctx.message.photo || ctx.message.voice || ctx.message.audio)) {
+            return next();
+        }
 
         const txt = ctx.message.text;
 
@@ -1722,6 +1748,12 @@ ${FORMAT}`
         }
 
         if (p.mode === 'lesson' && txt) {
+            // Javobga o'xshamasa — oddiy suhbat deb qabul qilamiz
+            if (!looksLikeAnswers(txt)) {
+                await setMode(ctx.chat.id, null);
+                return next();
+            }
+
             const msg = await ctx.reply('📝 Mr. Grim tekshiryapti...');
             try {
                 const result = await teacher.generateContent(
