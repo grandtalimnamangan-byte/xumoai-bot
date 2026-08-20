@@ -98,6 +98,136 @@ TOPIC=<mavzu nomi>
 ${FORMAT}`,
     });
 
+    // ==================== MR. HAWK — TEKSHIRUVCHI ====================
+    const checker = genAI.getGenerativeModel({
+        model: MODEL,
+        systemInstruction: `Sen Mr. Hawk — Humoyunning ishlarini tekshiradigan ustozsan. Laqabing "Hawk" — chunki bironta xatoni o'tkazib yubormaysan.
+
+XARAKTER:
+- Sinchkov va aniq. Har belgini ko'rasan: nuqta, bosh harf, artikl, predlog.
+- Sovuqqonsan. Maqtash uchun sabab bo'lsa maqtaysan, yo'q bo'lsa maqtamaysan.
+- Xatoni hech qachon "kichik" demaysan. Kichik xato takrorlanib odat bo'ladi.
+
+TEKSHIRISH USULI:
+Har javob uchun:
+- ✅ yoki ❌
+- Xato bo'lsa: noto'g'ri → to'g'ri → NEGA (qoida nomi bilan)
+- Yarim to'g'ri bo'lsa buni ayt: "ma'no to'g'ri, lekin shakl noto'g'ri"
+- Imlo va bosh harf xatolarini alohida belgila, lekin grammatika xatosidan ajratib ko'rsat
+
+QOIDALAR:
+- Faqat o'rgatilgan material doirasida tekshir. O'tilmagan grammatikani talab qilma.
+- Bir nechta to'g'ri variant bo'lsa, o'quvchiniki ham to'g'ri bo'lsa ✅ qo'y.
+- Oxirida: natija (X/N), eng ko'p qoqilgan qoida, va nima qilish kerakligi.
+
+Izoh o'zbekcha, misol inglizcha.
+
+${FORMAT}`,
+    });
+
+    // ==================== MS. WORD — LUG'AT USTASI ====================
+    const vocabCoach = genAI.getGenerativeModel({
+        model: MODEL,
+        systemInstruction: `Sen Ms. Word — Humoyunning lug'at bo'yicha ustozisan.
+
+XARAKTER: sabrli, iliq, lekin talabchan. So'zni yodlash emas, ISHLATISHNI o'rgatasan.
+
+BILIMING:
+- So'z yolg'iz yodlanmaydi — birikma va kontekst bilan yodlanadi
+- Assotsiatsiya usuli: so'zni o'zbekcha o'xshash tovushga bog'lash
+- Interval takrori: unutish egri chizig'i
+- So'z oilalari: work → worker → working → workplace
+- Sinonim va ma'no farqi: big / large / huge — qachon qaysi biri
+
+USLUB:
+- Har so'z uchun: talaffuz (o'zbek harflari bilan), tarjima, misol gap
+- Qiyin so'zga eslab qolish usuli qo'sh
+- O'zbek tilida o'xshash yoki chalkashadigan so'z bo'lsa ogohlantir
+
+Izoh o'zbekcha, misol inglizcha.
+
+${FORMAT}`,
+    });
+
+    // ==================== DR. RULE — GRAMMATIKA SHIFOKORI ====================
+    const grammarDoc = genAI.getGenerativeModel({
+        model: MODEL,
+        systemInstruction: `Sen Dr. Rule — grammatika bo'yicha ustozsan. Laqabing "shifokor" — chunki xatoning sababini topasan, alomatini emas.
+
+XARAKTER: sovuqqon, aniq, tizimli. Hech qachon "shunchaki yodla" demaysan — har qoidaning mantiqi bor.
+
+USLUB:
+- Qoidani formula ko'rinishida ber: Subject + have/has + V3
+- Kamida 5 ta misol, har biri tarjimasi bilan
+- Inkor va so'roq shaklini alohida ko'rsat
+- Istisnolarni ro'yxat qilib ber
+- **O'zbek tili bilan solishtir** — bu eng muhim qism. O'zbekchada bu qanday, nima uchun chalkashadi
+
+XATO TAHLILI:
+Xatoni ko'rganda sababini top:
+- Ona tili ta'siri (o'zbekchadan to'g'ridan-to'g'ri tarjima)
+- Qoidani chala bilish
+- Boshqa qoida bilan chalkashtirish
+Sababni aytmasdan tuzatma.
+
+Izoh o'zbekcha, misol inglizcha.
+
+${FORMAT}`,
+    });
+
+    // ==================== MR. ECHO — TALAFFUZ VA TINGLASH ====================
+    const soundCoach = genAI.getGenerativeModel({
+        model: MODEL,
+        systemInstruction: `Sen Mr. Echo — talaffuz va tinglash bo'yicha ustozsan. Quloq va og'iz ustasi.
+
+BILIMING — o'zbek tilida so'zlashuvchilarning tipik muammolari:
+- /θ/ va /ð/ — o'zbek tilida yo'q, s/z yoki t/d ga almashtiriladi
+- /w/ va /v/ — o'zbekchada "v" bitta, ingliz tilida ikkita
+- Uzun va qisqa unlilar: sheep/ship, beat/bit — ma'no o'zgaradi
+- /æ/ — o'zbekcha "a" va "e" orasida
+- Schwa /ə/ — urg'usiz bo'g'in, o'zbeklar to'liq talaffuz qiladi
+- -ed oxiri uch xil: /t/ /d/ /ɪd/
+- -s oxiri uch xil: /s/ /z/ /ɪz/
+- /r/ — o'zbekcha titroq "r" emas, til tanglayga tegmaydi
+- So'z urg'usi — noto'g'ri tushsa so'z tanilmaydi
+- Bog'lanish (linking) — tabiiy nutqda so'zlar qo'shilib ketadi
+
+USLUB:
+- Og'iz, til va lab holatini aniq tasvirla
+- O'zbek tilidagi qaysi tovushga o'xshaydi va nimasi bilan farq qiladi — albatta ayt
+- Ovozli javobni tinglaganda aniq so'zni ko'rsat: "cat" ni "ket" deb aytdingiz
+- Halol bahola, oshirib yuborma
+
+Izoh o'zbekcha.
+
+${FORMAT}`,
+    });
+
+    // ==================== MS. PAGE — O'QISH ====================
+    const readCoach = genAI.getGenerativeModel({
+        model: MODEL,
+        systemInstruction: `Sen Ms. Page — o'qish bo'yicha ustozsan.
+
+XARAKTER: xotirjam, uslubiy. Matnni tushuntirish emas, TUSHUNISH USULINI o'rgatasan.
+
+O'RGATADIGAN STRATEGIYALAR:
+- Skimming — umumiy mazmunni tez ilg'ash
+- Scanning — aniq ma'lumotni topish
+- Notanish so'zni kontekstdan taxmin qilish (lug'atga yugurmaslik)
+- Abzatsning asosiy fikrini topish
+- IELTS: True / False / Not Given farqi — bu eng ko'p xato qilinadigan joy
+- Sarlavha moslash va matn tuzilishini ko'rish
+
+USLUB:
+- Javobni tekshirganda matnning QAYSI JOYIDAN ekanini ko'rsat
+- Noto'g'ri javob bo'lsa: qaysi so'z chalg'itgan, nima uchun
+- Har mashqdan keyin 1 ta strategiya maslahati
+
+Izoh o'zbekcha, matn inglizcha.
+
+${FORMAT}`,
+    });
+
     const buddy = genAI.getGenerativeModel({
         model: MODEL,
         systemInstruction: `Sen Danny — Humoyunning ingliz tilida gaplashadigan DO'STIsan. O'qituvchi EMAS.
@@ -115,7 +245,9 @@ ${FORMAT}`,
 
     const examiner = genAI.getGenerativeModel({
         model: MODEL,
-        systemInstruction: `Sen IELTS Writing bo'yicha rasmiy imtihonchisan.
+        systemInstruction: `Sen Ms. Quill — IELTS Writing bo'yicha rasmiy imtihonchisan.
+
+XARAKTER: rasmiy, xolis, qattiq. Shaxsiy munosabat yo'q — faqat mezon.
 
 MEZONLAR (har biri 0-9): Task Response, Coherence and Cohesion, Lexical Resource, Grammatical Range and Accuracy.
 
@@ -502,7 +634,7 @@ Oxirida WORDS= qatori va alohida qatorda TOPIC=<mavzu nomi> yoz.`
                     .from('eng_vocab').select('word').eq('chat_id', ctx.chat.id).limit(500);
                 const known = (existing || []).map((r) => r.word).join(', ');
 
-                const gen = await plain().generateContent(
+                const gen = await vocabCoach.generateContent(
                     `${p.level} darajadagi o'zbek o'quvchisi uchun 10 ta YANGI, kundalik hayotda eng ko'p ishlatiladigan inglizcha so'z tanla.
 Allaqachon o'rganilgan, QAYTARMA: ${known || "yo'q"}
 
@@ -615,7 +747,7 @@ FAQAT JSON massiv qaytar:
                 return `${i + 1}. [gap tuzish] "${t.w.word}" so'zi grammatik to'g'ri va ma'noli ishlatilgan bo'lsa to'g'ri`;
             }).join('\n');
 
-            const gen = await plain().generateContent(
+            const gen = await checker.generateContent(
                 `Topshiriqlar:\n${spec}\n\nO'quvchi javobi:\n${answer}\n\n` +
                 `Har raqam bo'yicha to'g'ri/noto'g'ri aniqla. 1 harflik imlo xatosi TO'G'RI.\n` +
                 `FAQAT JSON: [{"n":1,"correct":true,"given":"yozgani","note":"xato bo'lsa qisqa izoh"}]`
@@ -688,7 +820,7 @@ FAQAT JSON massiv qaytar:
             const p = await getProfile(ctx.chat.id);
             const src = LISTEN_SOURCES[Math.floor(Math.random() * LISTEN_SOURCES.length)];
 
-            const gen = await plain().generateContent(
+            const gen = await soundCoach.generateContent(
                 `${p.level} darajadagi o'quvchi uchun listening topshirig'i tuz.
 
 Manba: ${src.name} (${src.where}).
@@ -739,7 +871,7 @@ ${FORMAT}`,
             }];
             if (voicePart) parts.push(voicePart);
 
-            const gen = await plain().generateContent({ contents: [{ role: 'user', parts }] });
+            const gen = await soundCoach.generateContent({ contents: [{ role: 'user', parts }] });
             const out = gen.response.text();
 
             const wm = out.match(/WORDS=(.+)/i);
@@ -775,7 +907,7 @@ ${FORMAT}`,
             const p = await getProfile(ctx.chat.id);
             const ielts = p.day_number >= 150;
 
-            const gen = await plain().generateContent(
+            const gen = await readCoach.generateContent(
                 `${p.level} darajadagi o'quvchi uchun reading mashqi tuz.
 
 1. ${ielts ? '250-300' : '150-200'} so'zlik inglizcha matn (qiziqarli fakt, ilm-fan, tarix yoki texnologiya).
@@ -807,7 +939,7 @@ FAQAT JSON:
 
         const msg = await ctx.reply('📊 Tekshirilyapti...');
         try {
-            const gen = await plain().generateContent(
+            const gen = await readCoach.generateContent(
                 `Matn:\n${d.passage}\n\nSavollar:\n${d.questions.join('\n')}\nTo'g'ri javoblar:\n${d.answers.join('\n')}\n\n` +
                 `O'quvchi javoblari:\n${answer}\n\n` +
                 `Har savolni tekshir: ✅/❌ + to'g'ri javob + matnning qaysi joyidan ekanini ko'rsat (o'zbekcha izoh). ` +
@@ -846,7 +978,7 @@ FAQAT JSON:
             const p = await getProfile(ctx.chat.id);
             const ielts = p.day_number >= 150;
 
-            const gen = await plain().generateContent(
+            const gen = await examiner.generateContent(
                 `${p.level} darajadagi o'quvchi uchun ${ielts ? 'IELTS Writing Task 2' : "oddiy yozma"} topshirig'i tuz.
 
 Javob tuzilishi:
@@ -945,7 +1077,7 @@ Namuna esse YOZMA — o'quvchi o'zi yozadi.\n\n${FORMAT}`
         const msg = await ctx.reply('🎯 Test tayyorlanyapti...');
         try {
             const p = await getProfile(ctx.chat.id);
-            const gen = await plain().generateContent(
+            const gen = await grammarDoc.generateContent(
                 `Ingliz tili daraja tekshiruvi tuz. Joriy daraja: ${p.level}.
 
 12 ta savol: 6 tasi ${p.level}, 4 tasi bir pog'ona yuqori, 2 tasi ikki pog'ona yuqori.
@@ -967,7 +1099,7 @@ Boshida: "Javoblarni bitta xabarda raqamlab yozing."\n\n${FORMAT}`
 
         const msg = await ctx.reply('📊 Daraja aniqlanyapti...');
         try {
-            const gen = await plain().generateContent(
+            const gen = await checker.generateContent(
                 `Savollar:\n${questions}\n\nJavoblar:\n${answer}\n\n` +
                 `Har javobni tekshir, keyin CEFR darajani aniqla.\n` +
                 `1. Har savol: ✅/❌ + to'g'ri javob + izoh\n2. **Natija: X/12**\n3. **Darajangiz: [CEFR]**\n` +
@@ -1002,7 +1134,9 @@ Boshida: "Javoblarni bitta xabarda raqamlab yozing."\n\n${FORMAT}`
     // ==================== /ielts — SPEAKING IMTIHONI ====================
     const speakingExaminer = genAI.getGenerativeModel({
         model: MODEL,
-        systemInstruction: `Sen IELTS Speaking bo'yicha rasmiy imtihonchisan.
+        systemInstruction: `Sen Mr. Clark — IELTS Speaking bo'yicha rasmiy imtihonchisan.
+
+XARAKTER: rasmiy imtihonchi. Iliqlik yo'q, lekin adolatli. Imtihon xonasidagidek.
 
 MEZONLAR (har biri 0-9): Fluency and Coherence, Lexical Resource, Grammatical Range and Accuracy, Pronunciation.
 
@@ -1028,7 +1162,7 @@ ${FORMAT}`,
 
         try {
             const p = await getProfile(ctx.chat.id);
-            const gen = await plain().generateContent(
+            const gen = await speakingExaminer.generateContent(
                 `IELTS Speaking imtihonining bitta to'liq sessiyasini tuz (daraja ${p.level}).
 
 1. 🎤 **Part 1** — 3 ta oddiy shaxsiy savol (uy, ish, hobbi, ovqat, sayohat).
@@ -1109,7 +1243,7 @@ ${FORMAT}`
 
             const top3 = mistakes.slice(0, 3).map((m) => m.topic).join(', ');
 
-            const gen = await plain().generateContent(
+            const gen = await grammarDoc.generateContent(
                 `O'quvchining eng ko'p takrorlanadigan xatolari: ${top3}.\n\n` +
                 `Shu 3 ta mavzu bo'yicha 6 ta maqsadli mashq tuz (bo'sh joy, tarjima, xatoni top). ` +
                 `Javoblarni berma. Qisqa yoz.\n\n${FORMAT}`
@@ -1138,7 +1272,7 @@ ${FORMAT}`
                 .select('word').eq('chat_id', ctx.chat.id).eq('type', 'chunk').limit(300);
             const known = (existing || []).map((r) => r.word).join('; ');
 
-            const gen = await plain().generateContent(
+            const gen = await vocabCoach.generateContent(
                 `${p.level} darajadagi o'zbek o'quvchisi uchun 8 ta INGLIZCHA SO'Z BIRIKMASI (chunk / collocation) tanla.
 
 MUHIM: yakka so'z EMAS, balki birga ishlatiladigan bo'laklar:
@@ -1182,7 +1316,7 @@ FAQAT JSON:
         const msg = await ctx.reply('📝 Tekshirilyapti...');
         try {
             const list = chunks.map((c) => `${c.word} = ${c.meaning}`).join('\n');
-            const gen = await plain().generateContent(
+            const gen = await checker.generateContent(
                 `Birikmalar:\n${list}\n\nO'quvchi shulardan foydalanib gap tuzdi:\n${answer}\n\n` +
                 `Har gapni tekshir:\n- Birikma TO'G'RI shaklda ishlatilganmi (so'z tartibi, predlog, artikl)\n` +
                 `- Grammatik xatolar\n- Tabiiy eshitiladimi\n\n` +
@@ -1220,7 +1354,7 @@ FAQAT JSON:
                 .select('word, meaning').eq('chat_id', ctx.chat.id)
                 .gte('box', 2).limit(40);
 
-            const gen = await plain().generateContent(
+            const gen = await grammarDoc.generateContent(
                 `${p.level} darajadagi o'quvchi uchun TEZ TARJIMA drilli tuz.
 
 15 ta QISQA o'zbekcha gap yoz (har biri 4-8 so'z). O'quvchi ularni tez inglizchaga o'giradi.
@@ -1259,7 +1393,7 @@ ${FORMAT}`
         const msg = await ctx.reply(`📊 Tekshirilyapti... (${mins} daq ${secs % 60} soniya)`);
 
         try {
-            const gen = await plain().generateContent(
+            const gen = await checker.generateContent(
                 `Topshiriq:\n${d.questions}\n\nO'quvchi tarjimalari:\n${answer}\n\n` +
                 `Har gapni tekshir: ✅/❌ + to'g'ri tarjima + xato bo'lsa qisqa o'zbekcha izoh.\n` +
                 `Bir nechta to'g'ri variant bo'lsa, o'quvchiniki ham to'g'ri bo'lsa ✅ qo'y.\n` +
@@ -1315,7 +1449,7 @@ ${FORMAT}`
             const s = SOUNDS[(count || 0) % SOUNDS.length];
             const msg = await ctx.reply('🗣 Talaffuz mashqi tayyorlanyapti...');
 
-            const gen = await plain().generateContent(
+            const gen = await soundCoach.generateContent(
                 `Talaffuz darsi tuz. Bugungi tovush: ${s.name}
 Yo'riqnoma: ${s.hint}
 
@@ -1351,7 +1485,7 @@ ${FORMAT}`
 
         const msg = await ctx.reply('🎧 Talaffuz tahlil qilinyapti...');
         try {
-            const gen = await plain().generateContent({
+            const gen = await soundCoach.generateContent({
                 contents: [{
                     role: 'user',
                     parts: [
@@ -1477,7 +1611,7 @@ ${FORMAT}`,
             const table = g.verbs.map((v, i) =>
                 `${i + 1}. **${v[0]}** → ${v[1]} → ${v[2]} — ${v[3]}`).join('\n');
 
-            const gen = await plain().generateContent(
+            const gen = await grammarDoc.generateContent(
                 `O'zbek o'quvchisi noto'g'ri fe'llarning "${g.name}" guruhini o'rganyapti.
 Qoida: ${g.rule}
 Fe'llar: ${g.verbs.map((v) => v.join('/')).join(', ')}
@@ -1510,7 +1644,7 @@ ${FORMAT}`
 
         const msg = await ctx.reply('📊 Tekshirilyapti...');
         try {
-            const gen = await plain().generateContent(
+            const gen = await checker.generateContent(
                 `Guruh: ${d.group}\nFe'llar: ${d.verbs.map((v) => v.join('/')).join(', ')}\n\n` +
                 `Topshiriqlar:\n${d.text}\n\nO'quvchi javoblari:\n${answer}\n\n` +
                 `Har javobni tekshir: ✅/❌ + to'g'ri shakl + nega shu shakl kerakligi (o'zbekcha, qisqa).\n` +
@@ -1631,7 +1765,7 @@ ${FORMAT}`
         try {
             const p = await getProfile(ctx.chat.id);
 
-            const gen = await plain().generateContent(
+            const gen = await soundCoach.generateContent(
                 `${p.level} darajadagi o'zbek o'quvchisi uchun ${isDictation ? 'DIKTANT' : 'TINGLASH'} mashqi tuz.\n\n` +
                 (isDictation
                     ? `4-6 ta qisqa inglizcha gap yoz (har biri 6-10 so'z). O'quvchi ularni eshitib yozib oladi.\n` +
@@ -1683,7 +1817,7 @@ ${FORMAT}`
                   `Har savolni tekshir: ✅/❌ + to'g'ri javob + matnning qaysi joyidan.\n` +
                   `Oxirida **Natija: X/${d.questions.length}**.\n${MISTAKE_SPEC}\n\n${FORMAT}`;
 
-            const gen = await plain().generateContent(prompt);
+            const gen = await soundCoach.generateContent(prompt);
             const out = gen.response.text();
             const mistakes = await recordMistakes(ctx.chat.id, out);
 
@@ -1727,7 +1861,7 @@ ${FORMAT}`
             const t = GRAM_TOPICS[(count || 0) % GRAM_TOPICS.length];
             const msg = await ctx.reply('📐 Mashq tayyorlanyapti...');
 
-            const gen = await plain().generateContent(
+            const gen = await grammarDoc.generateContent(
                 `O'zbek o'quvchisi uchun "${t.name}" mavzusida mashq tuz.\nQoida: ${t.rule}\n\n` +
                 `1. 📖 **Qoida** — o'zbekcha, 4-5 jumla. O'zbek tilida bu qanday ifodalanishini solishtir.\n` +
                 `2. ⚠️ **O'zbeklar qiladigan xato** — 2 ta aniq misol: noto'g'ri → to'g'ri.\n` +
@@ -1752,7 +1886,7 @@ ${FORMAT}`
 
         const msg = await ctx.reply('📊 Tekshirilyapti...');
         try {
-            const gen = await plain().generateContent(
+            const gen = await checker.generateContent(
                 `Mavzu: ${d.topic}\n\nTopshiriqlar:\n${d.text}\n\nO'quvchi javoblari:\n${answer}\n\n` +
                 `Har javobni tekshir: ✅/❌ + to'g'ri variant + NEGA shunday (qisqa, o'zbekcha).\n` +
                 `Artiklsiz holatni to'g'ri topgan bo'lsa alohida ta'kidla.\n` +
@@ -1805,7 +1939,7 @@ ${FORMAT}`
                 return { word, meaning };
             }), 'chunk');
 
-            const gen = await plain().generateContent(
+            const gen = await vocabCoach.generateContent(
                 `O'zbek o'quvchisi "${g.name}" ildizli phrasal verb larni o'rganyapti.\n` +
                 `Iboralar: ${g.verbs.join('; ')}\n\n` +
                 `1. 🧠 **Mantiq** — bu guruhda predlog ma'noni qanday o'zgartirishini tushuntir (up, off, out, over ning umumiy mantiqi).\n` +
@@ -1832,7 +1966,7 @@ ${FORMAT}`
 
         const msg = await ctx.reply('📊 Tekshirilyapti...');
         try {
-            const gen = await plain().generateContent(
+            const gen = await checker.generateContent(
                 `Guruh: ${d.group}\nIboralar: ${d.verbs.join('; ')}\n\n` +
                 `Topshiriqlar:\n${d.text}\n\nO'quvchi javoblari:\n${answer}\n\n` +
                 `Har javobni tekshir: ✅/❌ + to'g'ri ibora + ma'no farqi.\n` +
@@ -1919,6 +2053,29 @@ ${FORMAT}`
             `Endi har darsda qolgan kun ko'rsatiladi.\nReja: /imtihon`
         );
     });
+
+    // ==================== /ustozlar ====================
+    bot.command(['ustozlar', 'ustoz'], (ctx) => ctx.reply(
+        `👨‍🏫 Sizning ustozlaringiz\n\n` +
+        `🎓 Mr. Grim — bosh ustoz, grammatika o'rgatadi\n` +
+        `   /eng\n\n` +
+        `🦅 Mr. Hawk — tekshiruvchi, bironta xatoni o'tkazmaydi\n` +
+        `   dars javoblari, uy vazifasi, barcha testlar\n\n` +
+        `📔 Ms. Word — lug'at ustasi\n` +
+        `   /word · /chunk · /phrasal\n\n` +
+        `🩺 Dr. Rule — grammatika shifokori, xato sababini topadi\n` +
+        `   /artikl · /fellar · /drill · /xato · /test\n\n` +
+        `🔊 Mr. Echo — talaffuz va tinglash\n` +
+        `   /talaffuz · /audio · /diktant · /listen\n\n` +
+        `📖 Ms. Page — o'qish strategiyalari\n` +
+        `   /read\n\n` +
+        `✒️ Ms. Quill — IELTS Writing imtihonchisi\n` +
+        `   /essay · /write\n\n` +
+        `🎤 Mr. Clark — IELTS Speaking imtihonchisi\n` +
+        `   /ielts\n\n` +
+        `😄 Danny — do'st, erkin suhbat (o'qituvchi emas)\n` +
+        `   /speak`
+    ));
 
     // ==================== /progress ====================
     bot.command('progress', async (ctx) => {
@@ -2094,7 +2251,7 @@ ${FORMAT}`
                 const topics = await getTopics(ctx.chat.id, 1);
                 const topic = topics[0]?.topic || `kun ${p.day_number}`;
 
-                const result = await teacher.generateContent(
+                const result = await checker.generateContent(
                     `Humoyun bugungi dars mashqlariga javob berdi.\n` +
                     `Mavzu: ${topic}\nKun: ${p.day_number}, daraja: ${p.level}\n\n` +
                     `Javoblari:\n${txt}\n\n` +
