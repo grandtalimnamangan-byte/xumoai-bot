@@ -603,7 +603,15 @@ Oxirida WORDS= qatori va alohida qatorda TOPIC=<mavzu nomi> yoz.`
 
             const footer = `\n\n📔 ${added} ta so'z lug'atga qo'shildi — **ertaga** /word da so'raladi.\n` +
                 `✍️ Mashqlarni yozib yuboring — tekshiraman va uy vazifasini beraman.` +
+                (examDue ? `\n\n🎓 **${examDue.name} imtihoni vaqti keldi!** ${examDue.from} → ${examDue.to}\nTopshirish: /bosqichtest` : '') +
                 (WEEK_FOCUS[wd].cmd ? `\n🎯 Bugungi fokus: ${WEEK_FOCUS[wd].name} → ${WEEK_FOCUS[wd].cmd}` : '');
+
+            // Bosqich imtihoni vaqti kelganmi
+            const { data: exams } = await supabase.from('eng_log')
+                .select('notes, score').eq('chat_id', ctx.chat.id).eq('activity', 'stage_exam');
+            const lastStage = exams?.length
+                ? Math.max(...exams.filter((x) => x.score >= 70).map((x) => parseInt(x.notes, 10) || 0)) : 0;
+            const examDue = STAGES.find((st) => newDay >= st.day && lastStage < st.day);
 
             const daysLeft = p.target_date
                 ? Math.round((new Date(p.target_date) - new Date(today())) / 86400000) : null;
@@ -2054,6 +2062,157 @@ ${FORMAT}`
         );
     });
 
+    // ==================== BOSQICH IMTIHONI ====================
+    // Har 60 kunda daraja tekshiriladi. O'tmasa keyingi bosqichga o'tilmaydi.
+    const STAGES = [
+        { day: 60, from: 'A1', to: 'A2', name: '1-bosqich' },
+        { day: 150, from: 'A2', to: 'B1', name: '2-bosqich' },
+        { day: 270, from: 'B1', to: 'B2', name: '3-bosqich' },
+        { day: 390, from: 'B2', to: 'B2+', name: '4-bosqich' },
+        { day: 450, from: 'B2+', to: 'IELTS', name: '5-bosqich' },
+    ];
+
+    function stageDue(dayNumber, lastStageDay) {
+        return STAGES.find((s) => dayNumber >= s.day && (lastStageDay || 0) < s.day);
+    }
+
+    bot.command(['bosqich', 'imtihonim'], async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const p = await getProfile(ctx.chat.id);
+
+        const { data: passed } = await supabase.from('eng_log')
+            .select('notes, score, created_at').eq('chat_id', ctx.chat.id)
+            .eq('activity', 'stage_exam').order('created_at', { ascending: false });
+
+        const lastDay = passed?.length
+            ? Math.max(...passed.filter((x) => x.score >= 70).map((x) => parseInt(x.notes, 10) || 0)) : 0;
+
+        const due = stageDue(p.day_number, lastDay);
+        const next = STAGES.find((s) => s.day > (due?.day || lastDay));
+
+        const lines = [`🎓 **Bosqichlar**`, ''];
+        for (const s of STAGES) {
+            const done = lastDay >= s.day;
+            const now = due && due.day === s.day;
+            const mark = done ? '✅' : now ? '👉' : '⬜';
+            lines.push(`${mark} ${s.name} — kun ${s.day} · ${s.from} → ${s.to}`);
+        }
+
+        lines.push('', `📅 Hozirgi kun: ${p.day_number}`, `🎓 Daraja: ${p.level}`);
+
+        if (due) {
+            lines.push('', `⚡ **${due.name} imtihoni tayyor!**`,
+                `${due.from} → ${due.to} ga o'tish uchun topshirish kerak.`, '', `Boshlash: /bosqichtest`);
+        } else if (next) {
+            lines.push('', `Keyingi imtihon: ${next.name}, kun ${next.day} (${next.day - p.day_number} kun qoldi)`);
+        }
+
+        await sendFormatted(ctx, (await ctx.reply('...')).message_id, lines.join('\n'));
+    });
+
+    bot.command('bosqichtest', async (ctx) => {
+        if (!supabase) return ctx.reply(noDb());
+        const p = await getProfile(ctx.chat.id);
+
+        const { data: passed } = await supabase.from('eng_log')
+            .select('notes, score').eq('chat_id', ctx.chat.id).eq('activity', 'stage_exam');
+        const lastDay = passed?.length
+            ? Math.max(...passed.filter((x) => x.score >= 70).map((x) => parseInt(x.notes, 10) || 0)) : 0;
+
+        const due = stageDue(p.day_number, lastDay);
+        if (!due) {
+            const next = STAGES.find((s) => s.day > lastDay);
+            return ctx.reply(
+                `Bosqich imtihoni hali erta.\n\n` +
+                `Hozirgi kun: ${p.day_number}\n` +
+                (next ? `Keyingi imtihon: kun ${next.day} (${next.day - p.day_number} kun qoldi)` : 'Barcha bosqichlar tugadi.')
+            );
+        }
+
+        const msg = await ctx.reply(`🎓 ${due.name} imtihoni tayyorlanyapti...`);
+        try {
+            const covered = await getTopics(ctx.chat.id, 60);
+            const mistakes = await getTopMistakes(ctx.chat.id, 8);
+
+            const gen = await grammarDoc.generateContent(
+                `${due.name} IMTIHONI tuz: ${due.from} → ${due.to} darajaga o'tish uchun.\n\n` +
+                `O'tilgan mavzular:\n${covered.map((t) => t.topic).join(', ') || 'ma\'lumot yo\'q'}\n\n` +
+                `Zaif nuqtalari (kamida 5 ta savol shularga tegsin):\n${mistakes.map((m) => m.topic).join(', ') || "yo'q"}\n\n` +
+                `20 ta savol:\n` +
+                `- 8 ta grammatika (bo'sh joyni to'ldirish, to'g'ri shaklni tanlash)\n` +
+                `- 4 ta lug'at (ma'no yoki birikma)\n` +
+                `- 4 ta tarjima (o'zbekchadan inglizchaga)\n` +
+                `- 2 ta xatoni topib tuzatish\n` +
+                `- 2 ta gap tuzish (berilgan so'zlar bilan)\n\n` +
+                `Savollar ${due.from} darajani to'liq qamrasin va ${due.to} ga tayyorligini tekshirsin.\n` +
+                `Raqamlab yoz. Javoblarni BERMA.\n` +
+                `Boshida: "O'tish uchun 70% kerak. Javoblarni bitta xabarda raqamlab yozing."\n\n${FORMAT}`
+            );
+
+            const q = gen.response.text();
+            sessions.set(ctx.chat.id, { type: 'stage_exam', data: { stage: due, questions: q } });
+            await setMode(ctx.chat.id, 'stage_exam');
+
+            await sendFormatted(ctx, msg.message_id, `🎓 **${due.name} imtihoni**\n${due.from} → ${due.to}\n\n${q}`);
+        } catch (e) {
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
+        }
+    });
+
+    async function gradeStageExam(ctx, answer) {
+        const d = await guardSession(ctx, 'stage_exam');
+        if (!d) return;
+
+        const msg = await ctx.reply('🎓 Imtihon tekshirilyapti...');
+        try {
+            const gen = await checker.generateContent(
+                `${d.stage.name} imtihoni: ${d.stage.from} → ${d.stage.to}\n\n` +
+                `Savollar:\n${d.questions}\n\nJavoblar:\n${answer}\n\n` +
+                `Har savolni tekshir: ✅/❌ + to'g'ri javob + qisqa izoh.\n` +
+                `Oxirida:\n` +
+                `**Natija: X/20 (NN%)**\n` +
+                `**Xulosa:** o'tdi yoki o'tmadi (70% chegara)\n` +
+                `**Zaif tomonlar:** 3-4 ta mavzu\n\n` +
+                `Halol bahola. Rahm qilma — daraja oshirib yuborilsa, keyingi darslar og'ir keladi.\n\n` +
+                `Eng oxirida alohida qatorda faqat shuni yoz:\nSCORE=<foiz raqami>|WEAK=<mavzu1>,<mavzu2>,<mavzu3>\n\n${FORMAT}`
+            );
+
+            let out = gen.response.text();
+            const meta = out.match(/SCORE=(\d+)\|WEAK=(.+)/i);
+            const score = meta ? parseInt(meta[1], 10) : 0;
+            const weak = meta ? meta[2].split(',').map((x) => x.trim()).filter(Boolean) : [];
+            out = out.replace(/SCORE=.+/i, '').trim();
+
+            const passedExam = score >= 70;
+
+            await logActivity(ctx.chat.id, 'stage_exam', score, String(d.stage.day));
+
+            if (passedExam) {
+                await saveProfile(ctx.chat.id, { level: d.stage.to, weak_points: weak });
+            } else {
+                await saveProfile(ctx.chat.id, { weak_points: weak });
+            }
+
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+
+            const verdict = passedExam
+                ? `\n\n🎉 **O'TDINGIZ — ${score}%**\n` +
+                  `Darajangiz: **${d.stage.to}**\n` +
+                  `Keyingi bosqich boshlandi. Darslar og'irlashadi.`
+                : `\n\n⛔ **O'TMADINGIZ — ${score}%** (70% kerak)\n` +
+                  `Darajangiz ${d.stage.from} bo'lib qoladi.\n` +
+                  `Zaif mavzular bazaga yozildi — keyingi darslar shularga qaratiladi.\n` +
+                  `Bir hafta mustahkamlang, keyin qayta urinib ko'ring: /bosqichtest`;
+
+            await sendFormatted(ctx, msg.message_id, out + verdict);
+        } catch (e) {
+            sessions.delete(ctx.chat.id);
+            await setMode(ctx.chat.id, null);
+            await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `Xatolik: ${e.message}`);
+        }
+    }
+
     // ==================== /ustozlar ====================
     bot.command(['ustozlar', 'ustoz'], (ctx) => ctx.reply(
         `👨‍🏫 Sizning ustozlaringiz\n\n` +
@@ -2192,6 +2351,7 @@ ${FORMAT}`
         if (p.mode === 'audio_test' && txt) return gradeAudio(ctx, txt);
         if (p.mode === 'gram_drill' && txt) return gradeGram(ctx, txt);
         if (p.mode === 'phrasal' && txt) return gradePhrasal(ctx, txt);
+        if (p.mode === 'stage_exam' && txt) return gradeStageExam(ctx, txt);
 
         if (p.mode === 'pronunciation') {
             return gradePronunciation(ctx, await getVoicePart());

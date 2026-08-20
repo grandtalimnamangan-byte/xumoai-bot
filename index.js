@@ -1326,6 +1326,7 @@ bot.command(['ingliz', 'english'], (ctx) => ctx.reply(
     `/diktant — diktant\n` +
     `/imtihon — imtihon sanasi va reja\n` +
     `/ustozlar — ustozlar tarkibi\n` +
+    `/bosqich — bosqichlar va daraja\n` +
     `/drill — tez tarjima drilli\n` +
     `/talaffuz — talaffuz mashqi\n` +
     `/read — o'qish mashqi\n` +
