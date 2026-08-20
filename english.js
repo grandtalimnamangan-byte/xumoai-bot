@@ -113,61 +113,64 @@ ${FORMAT}`,
 
     const VOICE_ON = process.env.ENG_VOICE !== 'false';
 
-    // Matndan faqat INGLIZCHA gaplarni ajratamiz.
-    // TTS o'zbekchani yomon o'qiydi, va sizga inglizcha eshitish kerak.
-    const UZ_MARK = /[ʻʼ‘’]|\b(va|yoki|uchun|bilan|kerak|qil\w*|bo'l\w*|so'z|gap|misol|tarjima|mashq|javob|dars|talaffuz|qoida|nazariya|lug'at|mavzu|shakl|zamon|fe'l|ot|sifat|men|sen|siz|biz|ular|bu|shu|har|ham|emas|yo'q|bor)\b/i;
-
-    function englishOnly(text, limit = 900) {
-        const out = [];
-
-        for (let raw of text.split('\n')) {
-            let line = raw
-                .replace(/\*\*|__|\*|`|#{1,6}\s*/g, '')
-                .replace(/\[[^\]]*\]/g, '')            // [talaffuz]
-                .replace(/\([^)]*\)/g, '')             // qavs ichidagi izohlar
-                .replace(/_/g, '')
-                .replace(/^\s*[\d.)•\-—]+\s*/, '')
-                .replace(/[\p{Extended_Pictographic}]/gu, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-
-            if (line.length < 8) continue;
-
-            // Tire yoki ikki nuqtadan keyingi o'zbekcha qismni kesamiz
-            const dash = line.search(/\s[—–]\s/);
-            if (dash > 0) line = line.slice(0, dash).trim();
-
-            // Bo'sh joy qoldirilgan mashq gaplari o'qilmaydi
-            if (/_{2,}|\.{3,}/.test(raw)) continue;
-
-            // O'zbekcha belgi bo'lsa — tashlab ketamiz
-            if (UZ_MARK.test(line)) continue;
-
-            // Lotin harflar ulushi past bo'lsa — inglizcha emas
-            const letters = (line.match(/[a-zA-Z]/g) || []).length;
-            if (letters / line.length < 0.7) continue;
-
-            // Kamida ikki so'z bo'lsin
-            if (line.split(' ').length < 2) continue;
-
-            out.push(line.replace(/[.!?]+$/, ''));
-            if (out.join('. ').length > limit) break;
-        }
-
-        return out.join('. ').slice(0, limit);
+    // Matnni ovoz uchun tayyorlash — o'zbekcha ham, inglizcha ham o'qiladi.
+    // Faqat texnik belgilar tozalanadi.
+    function forSpeech(text) {
+        return text
+            .replace(/```[\s\S]*?```/g, ' ')          // kod bloklari
+            .replace(/_{2,}/g, ' bo\'sh joy ')        // mashqdagi bo'sh joylar
+            .replace(/\.{3,}/g, ' bo\'sh joy ')
+            .replace(/\*\*|__|\*|`|_/g, '')           // formatlash belgilari
+            .replace(/^#{1,6}\s*/gm, '')              // sarlavha belgilari
+            .replace(/\[([^\]]*)\]/g, '')             // [talaffuz] qavslari
+            .replace(/https?:\/\/\S+/g, ' havola ')
+            .replace(/[\p{Extended_Pictographic}]/gu, '')  // emojilar
+            .replace(/^\s*[-•]\s*/gm, '')             // ro'yxat belgilari
+            .replace(/[ \t]+/g, ' ')
+            .replace(/\n{2,}/g, '. ')
+            .replace(/\n/g, '. ')
+            .replace(/\.\s*\./g, '.')
+            .replace(/\s+([.,!?])/g, '$1')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
     }
 
-    // Ustoz ovozida yuborish — xato bo'lsa jim o'tadi
-    async function voice(ctx, who, text) {
-        if (!VOICE_ON || !speak || !text) return false;
-        const clean = englishOnly(text);
-        if (clean.length < 20) return false;
-        try {
-            return await speak(ctx, clean, VOICES[who]);
-        } catch (e) {
-            console.warn(`${who} ovozi:`, e.message);
-            return false;
+    // Uzun matnni gap chegarasida bo'laklarga bo'lish
+    function splitSpeech(text, limit = 1400) {
+        const parts = [];
+        let cur = '';
+        for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+            if ((cur + ' ' + sentence).length > limit && cur) {
+                parts.push(cur.trim());
+                cur = sentence;
+            } else {
+                cur += (cur ? ' ' : '') + sentence;
+            }
         }
+        if (cur.trim()) parts.push(cur.trim());
+        return parts;
+    }
+
+    // Ustoz ovozida yuborish — uzun bo'lsa bo'laklab
+    async function voice(ctx, who, text, maxParts = 4) {
+        if (!VOICE_ON || !speak || !text) return false;
+
+        const clean = forSpeech(text);
+        if (clean.length < 20) return false;
+
+        const chunks = splitSpeech(clean).slice(0, maxParts);
+        let ok = false;
+
+        for (const chunk of chunks) {
+            try {
+                const sent = await speak(ctx, chunk, VOICES[who]);
+                if (sent) ok = true;
+            } catch (e) {
+                console.warn(`${who} ovozi:`, e.message);
+                break;
+            }
+        }
+        return ok;
     }
 
     // ==================== MR. HAWK — TEKSHIRUVCHI ====================
@@ -1388,6 +1391,7 @@ FAQAT JSON:
             sessions.set(ctx.chat.id, { type: 'chunk_use', data: chunks });
             await setMode(ctx.chat.id, 'chunk_use');
 
+            voice(ctx, 'word', chunks.map((c2) => `${c2.word}. ${c2.example || ''}`).join('. ')).catch(() => {});
             await sendFormatted(ctx, msg.message_id,
                 `🧱 **8 ta so'z birikmasi**\n\n${list}\n\n` +
                 `✍️ **Topshiriq:** shu birikmalardan **5 tasini** tanlab, har biri bilan o'z hayotingizdan gap tuzing. ` +
@@ -1718,6 +1722,7 @@ ${FORMAT}`
             sessions.set(ctx.chat.id, { type: 'verbs', data: { group: g.name, verbs: g.verbs, text: gen.response.text() } });
             await setMode(ctx.chat.id, 'verbs');
 
+            voice(ctx, 'rule', `${g.name}. ${g.rule}. ` + g.verbs.map((v) => v.slice(0, 3).join(', ')).join('. ')).catch(() => {});
             await sendFormatted(ctx, msg.message_id,
                 `📘 **Noto'g'ri fe'llar — guruh ${gi + 1}/${VERB_GROUPS.length}: ${g.name}**\n` +
                 `_${g.rule}_\n\n${table}\n\n${gen.response.text()}\n\n` +
@@ -1962,6 +1967,7 @@ ${FORMAT}`
             sessions.set(ctx.chat.id, { type: 'gram_drill', data: { topic: t.name, text: gen.response.text() } });
             await setMode(ctx.chat.id, 'gram_drill');
 
+            voice(ctx, 'rule', gen.response.text()).catch(() => {});
             await sendFormatted(ctx, msg.message_id,
                 `📐 **${t.name}** · ${(count || 0) % GRAM_TOPICS.length + 1}/${GRAM_TOPICS.length}\n\n${gen.response.text()}`);
         } catch (e) {
@@ -2040,6 +2046,7 @@ ${FORMAT}`
             sessions.set(ctx.chat.id, { type: 'phrasal', data: { group: g.name, verbs: g.verbs, text: gen.response.text() } });
             await setMode(ctx.chat.id, 'phrasal');
 
+            voice(ctx, 'word', g.verbs.join('. ') + '. ' + gen.response.text()).catch(() => {});
             await sendFormatted(ctx, msg.message_id,
                 `🔗 **Phrasal verbs — ${g.name}** · ${gi + 1}/${PHRASAL_GROUPS.length}\n\n` +
                 g.verbs.map((v, i) => `${i + 1}. ${v}`).join('\n') +
@@ -2300,22 +2307,23 @@ ${FORMAT}`
         `🎓 Mr. Grim — bosh ustoz, grammatika o'rgatadi\n` +
         `   /eng · ovozi: Fenrir\n\n` +
         `🦅 Mr. Hawk — tekshiruvchi, bironta xatoni o'tkazmaydi\n` +
-        `   dars javoblari, uy vazifasi, barcha testlar\n\n` +
+        `   dars javoblari, uy vazifasi, testlar · ovozi: Iapetus\n\n` +
         `📔 Ms. Word — lug'at ustasi\n` +
         `   /word · /chunk · /phrasal · ovozi: Aoede\n\n` +
         `🩺 Dr. Rule — grammatika shifokori, xato sababini topadi\n` +
-        `   /artikl · /fellar · /drill · /xato · /test\n\n` +
+        `   /artikl · /fellar · /drill · /xato · ovozi: Charon\n\n` +
         `🔊 Mr. Echo — talaffuz va tinglash\n` +
         `   /talaffuz · /audio · /diktant · ovozi: Orus\n\n` +
         `📖 Ms. Page — o'qish strategiyalari\n` +
         `   /read · ovozi: Zephyr\n\n` +
         `✒️ Ms. Quill — IELTS Writing imtihonchisi\n` +
-        `   /essay · /write\n\n` +
+        `   /essay · /write · ovozi: Kore\n\n` +
         `🎤 Mr. Clark — IELTS Speaking imtihonchisi\n` +
         `   /ielts · ovozi: Algieba\n\n` +
         `😄 Danny — do'st, erkin suhbat (o'qituvchi emas)\n` +
         `   /speak · ovozi: Puck\n\n` +
-        `🔇 Ovozni o'chirish: Render'da ENG_VOICE = false`
+        `🔊 Darslar ovozda ham keladi — o'zbekcha va inglizcha birga.\n` +
+        `🔇 O'chirish: Render'da ENG_VOICE = false`
     ));
 
     // ==================== /progress ====================
@@ -2513,6 +2521,7 @@ ${FORMAT}`
                 const mistakes = await recordMistakes(ctx.chat.id, out);
                 await sendFormatted(ctx, msg.message_id,
                     `${stripMeta(out)}${mistakes ? `\n\n📝 ${mistakes} ta xato jurnaliga yozildi.` : ''}`);
+                voice(ctx, 'hawk', stripMeta(out)).catch(() => {});
                 await logActivity(ctx.chat.id, 'homework');
             } catch (e) {
                 await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
