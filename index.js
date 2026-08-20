@@ -596,7 +596,7 @@ bot.start(async (ctx) => {
         `🌅 /brifing — kunlik brifing\n` +
         `📌 /vazifalar — ochiq vazifalar\n` +
         `📚 /eng — ingliz tili darsi\n` +
-        `🎙 /suhbatlash — ovozli suhbat\n` +
+        `📔 /suhbatlash — so'z kartochkalari\n` +
         `❓ /yordam — barcha imkoniyatlar\n\n` +
         `💡 Komanda yozish shart emas — shunchaki gapiring.\n` +
         `"Ertaga soat 3 da Belissimo'ga qo'ng'iroq qilishim kerak" deb yozsangiz, o'zim vazifaga yozib qo'yaman.`,
@@ -1071,7 +1071,7 @@ const webappLink = WEBAPP_URL
     : '';
 
 apiHandler = require('./api')({
-    genAI, MODEL, token, myTelegramId, appKey: APP_KEY,
+    genAI, MODEL, token, myTelegramId, appKey: APP_KEY, supabase,
     model, modelNoTools, textToSpeech, pcmToMp3,
     loadHistory, saveHistory, memoryApi, MAX_HISTORY,
 });
@@ -1079,7 +1079,7 @@ console.log(WEBAPP_URL ? `📱 Mini App ulandi: ${WEBAPP_URL}` : '📱 Mini App 
 
 // Xabar maydoni tepasida doimiy turadigan tugma
 const voiceKeyboard = webappLink ? {
-    keyboard: [[{ text: '🎙 Ovozli suhbat', web_app: { url: webappLink } }]],
+    keyboard: [[{ text: "📔 So'z kartochkalari", web_app: { url: webappLink } }]],
     resize_keyboard: true,
     is_persistent: true,
 } : undefined;
@@ -1100,7 +1100,7 @@ bot.command(['suhbatlash', 'app', 'tugma'], async (ctx) => {
             "Render'da WEBAPP_URL o'zgaruvchisiga sahifa manzilini yozing."
         );
     }
-    await ctx.reply('🎙 Tugma qo\'yildi — endi xabar maydoni tepasida turadi.', {
+    await ctx.reply('📔 Tugma qo\'yildi — endi xabar maydoni tepasida turadi.', {
         reply_markup: voiceKeyboard,
     });
 });
@@ -1383,7 +1383,7 @@ const COMMANDS = [
     { command: 'brifing', description: '🌅 Kunlik brifing' },
     { command: 'vazifalar', description: '📌 Ochiq vazifalar' },
     { command: 'bajardim', description: '✅ Vazifani yopish' },
-    { command: 'suhbatlash', description: '🎙 Ovozli suhbat' },
+    { command: 'suhbatlash', description: "📔 So'z kartochkalari" },
     { command: 'eng', description: '📚 Bugungi dars' },
     { command: 'word', description: "🔁 So'z takrori" },
     { command: 'esla', description: '🧠 Eski suhbatlardan qidirish' },

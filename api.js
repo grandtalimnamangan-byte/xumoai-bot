@@ -7,7 +7,7 @@ const crypto = require('crypto');
 
 module.exports = function createApi(deps) {
     const {
-        genAI, MODEL, token, myTelegramId, appKey,
+        genAI, MODEL, token, myTelegramId, appKey, supabase,
         model, modelNoTools, textToSpeech, pcmToMp3,
         loadHistory, saveHistory, memoryApi, MAX_HISTORY,
     } = deps;
@@ -156,7 +156,7 @@ module.exports = function createApi(deps) {
     }
 
     // Javobni ovozga aylantirish
-    async function speak(text) {
+    async function speak(text, voiceName = null) {
         try {
             const clean = text
                 .replace(/```[\s\S]*?```/g, ' ')
@@ -168,7 +168,7 @@ module.exports = function createApi(deps) {
                 .slice(0, 1500);
 
             if (!clean) return null;
-            const audio = await textToSpeech(clean);
+            const audio = await textToSpeech(clean, voiceName);
             const mp3 = await pcmToMp3(audio.pcm, audio.rate);
             return mp3.toString('base64');
         } catch (e) {
@@ -258,6 +258,65 @@ module.exports = function createApi(deps) {
                 if (!t) { json(res, 400, { error: 'Matn yo\'q' }); return true; }
 
                 const audio = await speak(t);
+                json(res, 200, { audio });
+                return true;
+            }
+
+            // --- So'z kartochkalari: takrorga chiqqan so'zlar ---
+            if (url === '/api/cards') {
+                if (!supabase) { json(res, 200, { cards: [] }); return true; }
+
+                const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date());
+                const { data, error } = await supabase.from('eng_vocab')
+                    .select('id, word, meaning, example, box, type')
+                    .eq('chat_id', myTelegramId).lte('next_review', today)
+                    .order('next_review').limit(30);
+
+                if (error) throw new Error(error.message);
+
+                // Takrorga chiqqan bo'lmasa — eng zaiflarini beramiz
+                if (!data?.length) {
+                    const { data: weak } = await supabase.from('eng_vocab')
+                        .select('id, word, meaning, example, box, type')
+                        .eq('chat_id', myTelegramId).order('box').limit(20);
+                    json(res, 200, { cards: weak || [], mode: 'takror' });
+                    return true;
+                }
+
+                json(res, 200, { cards: data, mode: 'kunlik' });
+                return true;
+            }
+
+            // --- Kartochka natijasi: bildim / bilmadim ---
+            if (url === '/api/card') {
+                if (!supabase) { json(res, 200, { ok: false }); return true; }
+
+                const id = parseInt(body.id, 10);
+                const known = body.known === true;
+                if (!id) { json(res, 400, { error: 'id yo\'q' }); return true; }
+
+                const { data: row } = await supabase.from('eng_vocab')
+                    .select('box').eq('id', id).maybeSingle();
+                if (!row) { json(res, 404, { error: 'topilmadi' }); return true; }
+
+                const BOX_INTERVALS = { 1: 1, 2: 3, 3: 7, 4: 16, 5: 35 };
+                const newBox = known ? Math.min((row.box || 1) + 1, 5) : 1;
+
+                const d = new Date();
+                d.setDate(d.getDate() + BOX_INTERVALS[newBox]);
+                const next = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(d);
+
+                await supabase.from('eng_vocab').update({ box: newBox, next_review: next }).eq('id', id);
+                json(res, 200, { ok: true, box: newBox, next });
+                return true;
+            }
+
+            // --- Bitta so'zni talaffuz qilish ---
+            if (url === '/api/word-audio') {
+                const w = (body.word || '').trim();
+                if (!w) { json(res, 400, { error: 'so\'z yo\'q' }); return true; }
+
+                const audio = await speak(w.slice(0, 200), 'Orus');
                 json(res, 200, { audio });
                 return true;
             }

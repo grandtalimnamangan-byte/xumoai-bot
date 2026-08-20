@@ -3,100 +3,87 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>JARVIS</title>
+<title>JARVIS — So'zlar</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
-    --bg: #05090e;
-    --bg2: #101b28;
-    --line: #20344a;
-    --accent: #4ae8ff;
-    --accent2: #2563eb;
-    --text: #e6f1f8;
-    --muted: #7d94a8;
+    --bg: #05090e; --bg2: #101b28; --line: #20344a;
+    --accent: #4ae8ff; --accent2: #2563eb;
+    --text: #e6f1f8; --muted: #7d94a8;
+    --ok: #22c55e; --no: #ef4444;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0; height: 100%;
-    background: radial-gradient(circle at 50% 20%, var(--bg2), var(--bg) 70%);
+    background: radial-gradient(circle at 50% 15%, var(--bg2), var(--bg) 70%);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    overflow: hidden;
+    overflow: hidden; user-select: none;
   }
-  #app { display: flex; flex-direction: column; height: 100%; padding: 16px; }
+  #app { display: flex; flex-direction: column; height: 100%; padding: 14px; }
 
-  header { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; }
+  header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; }
   .logo {
-    width: 34px; height: 34px; border-radius: 10px;
+    width: 32px; height: 32px; border-radius: 9px;
     background: linear-gradient(135deg, #101b28, #05090e);
     border: 1px solid var(--line);
     display: grid; place-items: center;
-    font-weight: 700; color: var(--accent); font-size: 18px;
+    font-weight: 700; color: var(--accent); font-size: 17px;
   }
-  .title { font-size: 15px; font-weight: 600; letter-spacing: .3px; }
+  .title { font-size: 14px; font-weight: 600; }
   .sub { font-size: 11px; color: var(--muted); }
+  #counter { margin-left: auto; font-size: 13px; color: var(--muted); }
 
-  #log {
-    flex: 1; overflow-y: auto; padding: 4px 2px 12px;
-    display: flex; flex-direction: column; gap: 10px;
-  }
-  .msg {
-    max-width: 88%; padding: 10px 13px; border-radius: 14px;
-    font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
-  }
-  .me {
-    align-self: flex-end;
-    background: linear-gradient(135deg, var(--accent2), #1e40af);
-    color: #fff; border-bottom-right-radius: 4px;
-  }
-  .ai {
-    align-self: flex-start;
-    background: #0e1a26; border: 1px solid var(--line);
-    border-bottom-left-radius: 4px;
-  }
-  .sys { align-self: center; font-size: 12px; color: var(--muted); }
+  #bar { height: 3px; background: #16232f; border-radius: 3px; overflow: hidden; margin-bottom: 14px; }
+  #fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .3s; }
 
-  .empty {
-    margin: auto; text-align: center; color: var(--muted);
-    font-size: 13px; line-height: 1.6; padding: 0 24px;
-  }
+  #stage { flex: 1; display: grid; place-items: center; padding: 6px 0; }
 
-  footer { padding-top: 10px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-
-  #status { font-size: 12px; color: var(--muted); height: 16px; }
-
-  #mic {
-    width: 92px; height: 92px; border-radius: 50%; border: none;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    color: #04121a; font-size: 34px;
-    display: grid; place-items: center; cursor: pointer;
-    box-shadow: 0 0 0 0 rgba(74,232,255,.45);
-    transition: transform .12s ease, box-shadow .3s ease;
-    user-select: none;
+  .card {
+    width: 100%; max-width: 420px; min-height: 240px;
+    background: linear-gradient(160deg, #0e1a26, #0a131c);
+    border: 1px solid var(--line); border-radius: 20px;
+    padding: 26px 22px; cursor: pointer;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; gap: 14px;
+    transition: transform .18s ease, opacity .18s ease;
   }
-  #mic:active { transform: scale(.94); }
-  #mic.rec {
-    background: linear-gradient(135deg, #ff5f6d, #c0392b);
-    animation: pulse 1.3s infinite;
-  }
-  #mic.busy { opacity: .5; pointer-events: none; }
-  @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(255,95,109,.5); }
-    70% { box-shadow: 0 0 0 22px rgba(255,95,109,0); }
-    100% { box-shadow: 0 0 0 0 rgba(255,95,109,0); }
+  .card:active { transform: scale(.985); }
+  .card.flip { animation: flip .28s ease; }
+  @keyframes flip { 0% { transform: rotateX(0) } 50% { transform: rotateX(90deg); opacity: .3 } 100% { transform: rotateX(0) } }
+
+  .word { font-size: 30px; font-weight: 700; letter-spacing: .3px; line-height: 1.2; }
+  .meaning { font-size: 22px; color: var(--accent); font-weight: 600; }
+  .example { font-size: 14px; color: var(--muted); font-style: italic; line-height: 1.5; }
+  .tap { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .badge {
+    font-size: 11px; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 20px; padding: 3px 10px;
   }
 
-  .row { display: flex; gap: 8px; width: 100%; }
-  #inp {
-    flex: 1; padding: 11px 14px; border-radius: 12px;
-    background: #0e1a26; border: 1px solid var(--line);
-    color: var(--text); font-size: 14px; outline: none;
+  #speaker {
+    position: absolute; top: 14px; right: 14px;
+    width: 38px; height: 38px; border-radius: 50%;
+    border: 1px solid var(--line); background: #0e1a26;
+    color: var(--accent); font-size: 17px; cursor: pointer;
+    display: grid; place-items: center;
   }
-  #send {
-    padding: 0 16px; border-radius: 12px; border: 1px solid var(--line);
-    background: #0e1a26; color: var(--accent); font-size: 15px; cursor: pointer;
+  #speaker:disabled { opacity: .4; }
+  .cardwrap { position: relative; width: 100%; max-width: 420px; }
+
+  footer { display: flex; gap: 10px; padding-top: 12px; }
+  .btn {
+    flex: 1; padding: 16px; border-radius: 14px; border: none;
+    font-size: 15px; font-weight: 600; cursor: pointer; color: #fff;
   }
-  .hint { font-size: 11px; color: var(--muted); }
+  .btn:active { transform: scale(.97); }
+  .btn.no { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+  .btn.ok { background: linear-gradient(135deg, #22c55e, #15803d); }
+  .btn:disabled { opacity: .35; }
+
+  .center { text-align: center; color: var(--muted); font-size: 14px; line-height: 1.7; padding: 0 20px; }
+  .big { font-size: 42px; margin-bottom: 8px; }
+  #status { text-align: center; font-size: 12px; color: var(--muted); height: 15px; }
 </style>
 </head>
 <body>
@@ -104,26 +91,26 @@
   <header>
     <div class="logo">J</div>
     <div>
-      <div class="title">JARVIS</div>
-      <div class="sub" id="sub">ovozli suhbat</div>
+      <div class="title">So'z kartochkalari</div>
+      <div class="sub" id="mode">yuklanyapti…</div>
     </div>
+    <div id="counter"></div>
   </header>
 
-  <div id="log">
-    <div class="empty" id="empty">
-      Mikrofonni bosib ushlab turing va gapiring.<br>
-      Qo'yib yuborsangiz javob beraman.
+  <div id="bar"><div id="fill"></div></div>
+
+  <div id="stage">
+    <div class="center" id="loading">
+      <div class="big">📔</div>
+      So'zlar yuklanyapti…
     </div>
   </div>
 
-  <footer>
-    <div id="status"></div>
-    <button id="mic">🎙</button>
-    <div class="row">
-      <input id="inp" placeholder="yoki yozing…" autocomplete="off">
-      <button id="send">➤</button>
-    </div>
-    <div class="hint">Ovoz javobi avtomatik ijro etiladi</div>
+  <div id="status"></div>
+
+  <footer id="controls" style="display:none">
+    <button class="btn no" id="btnNo">Bilmadim</button>
+    <button class="btn ok" id="btnOk">Bildim</button>
   </footer>
 </div>
 
@@ -131,143 +118,25 @@
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 
-// Server manzili — Mini App shu yerga murojaat qiladi
 const API = 'https://xumoai-agent.onrender.com';
-
-const log = document.getElementById('log');
-const empty = document.getElementById('empty');
-const mic = document.getElementById('mic');
-const status = document.getElementById('status');
-const inp = document.getElementById('inp');
-const send = document.getElementById('send');
-
-function say(text, who) {
-  if (empty) empty.remove();
-  const d = document.createElement('div');
-  d.className = 'msg ' + who;
-  d.textContent = text;
-  log.appendChild(d);
-  log.scrollTop = log.scrollHeight;
-  return d;
-}
-
-function setStatus(t) { status.textContent = t || ''; }
-function busy(on) { mic.classList.toggle('busy', on); send.disabled = on; }
-
-// ==================== OVOZ YOZIB OLISH ====================
-let audioCtx, stream, source, processor, buffers = [], recording = false, sampleRate = 16000;
-
-async function startRec() {
-  if (recording) return;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-    });
-  } catch (e) {
-    setStatus('Mikrofonga ruxsat berilmadi');
-    return;
-  }
-
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  source = audioCtx.createMediaStreamSource(stream);
-  processor = audioCtx.createScriptProcessor(4096, 1, 1);
-  buffers = [];
-  sampleRate = audioCtx.sampleRate;
-
-  processor.onaudioprocess = (e) => {
-    if (!recording) return;
-    buffers.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-  };
-
-  source.connect(processor);
-  processor.connect(audioCtx.destination);
-  recording = true;
-  mic.classList.add('rec');
-  setStatus('Tinglayapman…');
-  if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-}
-
-async function stopRec() {
-  if (!recording) return;
-  recording = false;
-  mic.classList.remove('rec');
-
-  try { processor.disconnect(); source.disconnect(); } catch {}
-  try { stream.getTracks().forEach((t) => t.stop()); } catch {}
-  try { await audioCtx.close(); } catch {}
-
-  const total = buffers.reduce((a, b) => a + b.length, 0);
-  if (total < sampleRate * 0.4) { setStatus('Juda qisqa'); return; }
-
-  const merged = new Float32Array(total);
-  let off = 0;
-  for (const b of buffers) { merged.set(b, off); off += b.length; }
-
-  const down = downsample(merged, sampleRate, 16000);
-  const wav = encodeWav(down, 16000);
-
-  setStatus('Yuborilyapti…');
-  busy(true);
-  say('🎙 ovozli xabar', 'me');
-
-  try {
-    const r = await post('/api/voice', { audio: toBase64(wav), mime: 'audio/wav' });
-    busy(false);
-    await handleAnswer(r);
-  } catch (e) {
-    setStatus('Xato: ' + e.message);
-  } finally {
-    busy(false);
-  }
-}
-
-function downsample(buf, from, to) {
-  if (to >= from) return buf;
-  const ratio = from / to;
-  const out = new Float32Array(Math.round(buf.length / ratio));
-  let oi = 0, i = 0;
-  while (oi < out.length) {
-    const next = Math.round((oi + 1) * ratio);
-    let sum = 0, n = 0;
-    for (; i < next && i < buf.length; i++) { sum += buf[i]; n++; }
-    out[oi++] = n ? sum / n : 0;
-  }
-  return out;
-}
-
-function encodeWav(samples, rate) {
-  const buf = new ArrayBuffer(44 + samples.length * 2);
-  const v = new DataView(buf);
-  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-
-  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE');
-  w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
-  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  w(36, 'data'); v.setUint32(40, samples.length * 2, true);
-
-  let o = 44;
-  for (let i = 0; i < samples.length; i++, o += 2) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  return new Uint8Array(buf);
-}
-
-function toBase64(bytes) {
-  let s = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  }
-  return btoa(s);
-}
-
-// ==================== SERVER BILAN ALOQA ====================
-// Havoladagi maxfiy kalit — Telegram imzosi ishlamagan holatlar uchun
 const APP_KEY = new URLSearchParams(location.search).get('k') || '';
 
-async function post(path, data) {
+const stage = document.getElementById('stage');
+const loading = document.getElementById('loading');
+const controls = document.getElementById('controls');
+const btnOk = document.getElementById('btnOk');
+const btnNo = document.getElementById('btnNo');
+const counter = document.getElementById('counter');
+const modeEl = document.getElementById('mode');
+const fill = document.getElementById('fill');
+const status = document.getElementById('status');
+
+let cards = [], idx = 0, flipped = false, known = 0, unknown = 0, audioCache = {};
+
+function haptic(t) { try { tg?.HapticFeedback?.impactOccurred(t); } catch {} }
+function setStatus(t) { status.textContent = t || ''; }
+
+async function post(path, data = {}) {
   const res = await fetch(API + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -278,70 +147,142 @@ async function post(path, data) {
   return j;
 }
 
-let player = null;
-
-// Formatlash belgilarini tozalash — ekranda ** ko'rinmasligi uchun
-function clean(t) {
-  return (t || '')
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/^#{1,6}\s*/gm, '')
-    .replace(/`/g, '')
-    .trim();
-}
-
-async function handleAnswer(r) {
-  const text = clean(r.text) || '(bo\'sh)';
-  say(text, 'ai');
-  setStatus('🔊 ovoz tayyorlanyapti…');
-
-  // Ovoz alohida so'raladi — matn kutib turmaydi
+// ==================== YUKLASH ====================
+async function load() {
   try {
-    const a = await post('/api/speak', { text: r.text });
-    if (a.audio) {
-      if (player) { player.pause(); player = null; }
-      player = new Audio('data:audio/mpeg;base64,' + a.audio);
-      player.play().catch(() => setStatus('Ovozni ijro etib bo\'lmadi'));
-      setStatus('');
-    } else {
-      setStatus('');
+    const r = await post('/api/cards');
+    cards = r.cards || [];
+    modeEl.textContent = r.mode === 'kunlik' ? 'bugungi takror' : 'eng zaif so\'zlar';
+
+    if (!cards.length) {
+      loading.innerHTML = '<div class="big">✅</div>Takrorlanadigan so\'z yo\'q.<br>Botda /word new yuboring.';
+      return;
     }
-  } catch {
-    setStatus('');
-  }
-}
-
-// ==================== TUGMALAR ====================
-mic.addEventListener('mousedown', startRec);
-mic.addEventListener('mouseup', stopRec);
-mic.addEventListener('mouseleave', () => { if (recording) stopRec(); });
-mic.addEventListener('touchstart', (e) => { e.preventDefault(); startRec(); }, { passive: false });
-mic.addEventListener('touchend', (e) => { e.preventDefault(); stopRec(); }, { passive: false });
-
-async function sendText() {
-  const t = inp.value.trim();
-  if (!t) return;
-  inp.value = '';
-  say(t, 'me');
-  busy(true);
-  setStatus('O\'ylayapman…');
-  try {
-    const r = await post('/api/text', { text: t });
-    busy(false);
-    await handleAnswer(r);
+    render();
   } catch (e) {
-    setStatus('Xato: ' + e.message);
-  } finally {
-    busy(false);
+    loading.innerHTML = '<div class="big">⚠️</div>' + e.message;
   }
 }
 
-send.addEventListener('click', sendText);
-inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
+// ==================== KO'RSATISH ====================
+function render() {
+  const c = cards[idx];
+  if (!c) return finish();
 
-// Server uyquda bo'lsa oldindan uyg'otamiz
+  flipped = false;
+  counter.textContent = `${idx + 1} / ${cards.length}`;
+  fill.style.width = ((idx / cards.length) * 100) + '%';
+
+  stage.innerHTML = `
+    <div class="cardwrap">
+      <button id="speaker">🔊</button>
+      <div class="card" id="card">
+        <div class="badge">quti ${c.box || 1}</div>
+        <div class="word">${esc(c.word)}</div>
+        <div class="tap">tarjimani ko'rish uchun bosing</div>
+      </div>
+    </div>`;
+
+  controls.style.display = 'flex';
+  btnOk.disabled = btnNo.disabled = true;
+
+  document.getElementById('card').onclick = flip;
+  document.getElementById('speaker').onclick = (e) => { e.stopPropagation(); play(c.word); };
+}
+
+function flip() {
+  if (flipped) return;
+  flipped = true;
+  haptic('light');
+
+  const c = cards[idx];
+  const card = document.getElementById('card');
+  card.classList.add('flip');
+
+  setTimeout(() => {
+    card.innerHTML =
+      `<div class="badge">quti ${c.box || 1}</div>` +
+      `<div class="word">${esc(c.word)}</div>` +
+      `<div class="meaning">${esc(c.meaning || '')}</div>` +
+      (c.example ? `<div class="example">${esc(c.example)}</div>` : '');
+    btnOk.disabled = btnNo.disabled = false;
+  }, 140);
+}
+
+function esc(s) {
+  return String(s || '').replace(/[<>&]/g, (m) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]));
+}
+
+// ==================== JAVOB ====================
+async function answer(isKnown) {
+  if (!flipped) return;
+  const c = cards[idx];
+
+  isKnown ? known++ : unknown++;
+  haptic(isKnown ? 'light' : 'medium');
+
+  btnOk.disabled = btnNo.disabled = true;
+  idx++;
+  render();
+
+  // Natijani fonda yuboramiz — kutib turmaymiz
+  post('/api/card', { id: c.id, known: isKnown }).catch(() => {});
+}
+
+btnOk.onclick = () => answer(true);
+btnNo.onclick = () => answer(false);
+
+// ==================== TALAFFUZ ====================
+async function play(word) {
+  const btn = document.getElementById('speaker');
+
+  if (audioCache[word]) {
+    new Audio('data:audio/mpeg;base64,' + audioCache[word]).play().catch(() => {});
+    return;
+  }
+
+  btn.disabled = true;
+  setStatus('🔊 tayyorlanyapti…');
+  try {
+    const r = await post('/api/word-audio', { word });
+    if (r.audio) {
+      audioCache[word] = r.audio;
+      new Audio('data:audio/mpeg;base64,' + r.audio).play().catch(() => {});
+    }
+    setStatus('');
+  } catch (e) {
+    setStatus('ovoz kelmadi');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ==================== YAKUN ====================
+function finish() {
+  fill.style.width = '100%';
+  counter.textContent = '';
+  controls.style.display = 'none';
+
+  const total = known + unknown;
+  const pct = total ? Math.round((known / total) * 100) : 0;
+
+  stage.innerHTML = `
+    <div class="center">
+      <div class="big">${pct >= 80 ? '🎉' : pct >= 50 ? '👍' : '💪'}</div>
+      <div style="font-size:26px;color:var(--text);font-weight:700;margin-bottom:10px">${known} / ${total}</div>
+      <div>Bildim: ${known} · Bilmadim: ${unknown}</div>
+      <div style="margin-top:14px;font-size:13px">
+        ${unknown ? `${unknown} ta so'z ertaga qaytadi.` : 'Hammasi to\'g\'ri — zo\'r!'}
+      </div>
+    </div>`;
+
+  haptic('heavy');
+  try { tg?.HapticFeedback?.notificationOccurred(pct >= 80 ? 'success' : 'warning'); } catch {}
+}
+
+// Serverni oldindan uyg'otamiz
 fetch(API + '/api/health').catch(() => {});
+load();
 </script>
 </body>
 </html>
