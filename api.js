@@ -107,8 +107,13 @@ module.exports = function createApi(deps) {
         });
     }
 
+    // Ovozli suhbat uchun javob qisqa bo'lishi kerak
+    const BREVITY = `\n\nMUHIM: bu OVOZLI SUHBAT. Javob 2-4 jumladan oshmasin. ` +
+        `Ro'yxat, sarlavha, formatlash ishlatma — oddiy gapiriladigan matn. ` +
+        `Batafsil kerak bo'lsa, foydalanuvchi so'raydi.`;
+
     // ==================== JAVOB TAYYORLASH ====================
-    async function answer(chatId, parts, plainText) {
+    async function answer(chatId, parts, plainText, brief = true) {
         const history = await loadHistory(chatId);
 
         // Cheksiz xotiradan kontekst
@@ -121,7 +126,9 @@ module.exports = function createApi(deps) {
         }
 
         const finalParts = [...parts];
-        if (ctxText && finalParts[0]?.text) finalParts[0] = { text: finalParts[0].text + ctxText };
+        if (finalParts[0]?.text) {
+            finalParts[0] = { text: finalParts[0].text + ctxText + (brief ? BREVITY : '') };
+        }
 
         const request = { contents: [...history, { role: 'user', parts: finalParts }] };
 
@@ -221,18 +228,17 @@ module.exports = function createApi(deps) {
         }
 
         try {
-            // --- Ovozli so'rov ---
+            // --- Ovozli so'rov: matn darrov qaytadi, ovoz alohida so'raladi ---
             if (url === '/api/voice') {
                 if (!body.audio) { json(res, 400, { error: 'Audio yo\'q' }); return true; }
 
                 const parts = [
-                    { text: "Foydalanuvchi ovozli savol berdi. Eshit va javob ber. Javob qisqa va aniq bo'lsin — u ovozda tinglanadi." },
+                    { text: "Foydalanuvchi ovozli savol berdi. Eshit va javob ber." },
                     { inlineData: { data: body.audio, mimeType: body.mime || 'audio/wav' } },
                 ];
 
                 const text = await answer(myTelegramId, parts, null);
-                const audio = await speak(text);
-                json(res, 200, { text, audio });
+                json(res, 200, { text });
                 return true;
             }
 
@@ -242,8 +248,17 @@ module.exports = function createApi(deps) {
                 if (!t) { json(res, 400, { error: 'Matn yo\'q' }); return true; }
 
                 const text = await answer(myTelegramId, [{ text: t }], t);
-                const audio = body.speak === false ? null : await speak(text);
-                json(res, 200, { text, audio });
+                json(res, 200, { text });
+                return true;
+            }
+
+            // --- Matnni ovozga aylantirish (alohida so'rov) ---
+            if (url === '/api/speak') {
+                const t = (body.text || '').trim();
+                if (!t) { json(res, 400, { error: 'Matn yo\'q' }); return true; }
+
+                const audio = await speak(t);
+                json(res, 200, { audio });
                 return true;
             }
 

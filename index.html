@@ -212,7 +212,8 @@ async function stopRec() {
 
   try {
     const r = await post('/api/voice', { audio: toBase64(wav), mime: 'audio/wav' });
-    handleAnswer(r);
+    busy(false);
+    await handleAnswer(r);
   } catch (e) {
     setStatus('Xato: ' + e.message);
   } finally {
@@ -278,16 +279,36 @@ async function post(path, data) {
 }
 
 let player = null;
-function handleAnswer(r) {
-  say(r.text || '(bo\'sh)', 'ai');
-  setStatus('');
 
-  if (r.audio) {
-    try {
+// Formatlash belgilarini tozalash — ekranda ** ko'rinmasligi uchun
+function clean(t) {
+  return (t || '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/`/g, '')
+    .trim();
+}
+
+async function handleAnswer(r) {
+  const text = clean(r.text) || '(bo\'sh)';
+  say(text, 'ai');
+  setStatus('🔊 ovoz tayyorlanyapti…');
+
+  // Ovoz alohida so'raladi — matn kutib turmaydi
+  try {
+    const a = await post('/api/speak', { text: r.text });
+    if (a.audio) {
       if (player) { player.pause(); player = null; }
-      player = new Audio('data:audio/mpeg;base64,' + r.audio);
-      player.play().catch(() => setStatus('Ovozni ijro etib bo\'lmadi — bosib ko\'ring'));
-    } catch {}
+      player = new Audio('data:audio/mpeg;base64,' + a.audio);
+      player.play().catch(() => setStatus('Ovozni ijro etib bo\'lmadi'));
+      setStatus('');
+    } else {
+      setStatus('');
+    }
+  } catch {
+    setStatus('');
   }
 }
 
@@ -306,7 +327,9 @@ async function sendText() {
   busy(true);
   setStatus('O\'ylayapman…');
   try {
-    handleAnswer(await post('/api/text', { text: t }));
+    const r = await post('/api/text', { text: t });
+    busy(false);
+    await handleAnswer(r);
   } catch (e) {
     setStatus('Xato: ' + e.message);
   } finally {
