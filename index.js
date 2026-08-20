@@ -179,8 +179,19 @@ async function clearHistory(chatId) {
 }
 
 // ==================== SERVER + UYQUGA QARSHI PING ====================
+let apiHandler = null;   // Mini App API — pastroqda o'rnatiladi
+
 const port = process.env.PORT || 3000;
-http.createServer((req, res) => {
+http.createServer(async (req, res) => {
+    // Mini App so'rovlari
+    if (apiHandler) {
+        try {
+            if (await apiHandler(req, res)) return;
+        } catch (e) {
+            console.error('API xatosi:', e.message);
+        }
+    }
+
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('JARVIS ishlamoqda.');
 }).listen(port, () => console.log(`Server port ${port} da ishga tushdi.`));
@@ -1030,6 +1041,30 @@ bot.command('ovoz', async (ctx) => {
 // ==================== CHEKSIZ XOTIRA ====================
 const memoryApi = require('./memory')(bot, { genAI, MODEL, supabase, sendFormatted, geminiApiKey });
 
+// ==================== MINI APP ====================
+const WEBAPP_URL = process.env.WEBAPP_URL || '';
+
+apiHandler = require('./api')({
+    genAI, MODEL, token, myTelegramId,
+    model, modelNoTools, textToSpeech, pcmToMp3,
+    loadHistory, saveHistory, memoryApi, MAX_HISTORY,
+});
+console.log(WEBAPP_URL ? `📱 Mini App ulandi: ${WEBAPP_URL}` : '📱 Mini App URL qo\'yilmagan (WEBAPP_URL)');
+
+bot.command(['suhbatlash', 'app'], async (ctx) => {
+    if (!WEBAPP_URL) {
+        return ctx.reply(
+            "📱 Mini App manzili qo'yilmagan.\n\n" +
+            "Render'da WEBAPP_URL o'zgaruvchisiga sahifa manzilini yozing."
+        );
+    }
+    await ctx.reply('🎙 Ovozli suhbat', {
+        reply_markup: {
+            inline_keyboard: [[{ text: '🎙 JARVIS bilan gaplashish', web_app: { url: WEBAPP_URL } }]],
+        },
+    });
+});
+
 // ==================== VAZIFALAR ====================
 const taskApi = require('./tasks')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
 
@@ -1222,6 +1257,7 @@ const COMMANDS = [
     { command: 'ovoz', description: '🔊 Matnni ovozga aylantirish' },
     { command: 'ovozi', description: '🎙 Ovozni tanlash' },
     { command: 'matn', description: '📄 Oxirgi javobni matnda' },
+    { command: 'suhbatlash', description: '🎙 Ovozli suhbat (Mini App)' },
     { command: 'esla', description: '🧠 Eski suhbatlardan qidirish' },
     { command: 'xotira', description: '📊 Xotira holati' },
     { command: 'fellar', description: "📘 Noto'g'ri fe'llar" },
