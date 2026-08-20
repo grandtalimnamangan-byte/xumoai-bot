@@ -602,7 +602,8 @@ bot.start(async (ctx) => {
         `🎬 /prompt — AI vositalar uchun prompt\n` +
         `📚 /eng — ingliz tili darsi\n` +
         `⚙️ /status — tizim holati\n\n` +
-        `To'liq ro'yxat: "/" tugmasi.`
+        `To'liq ro'yxat: "/" tugmasi.`,
+        voiceKeyboard ? { reply_markup: voiceKeyboard } : undefined
     );
 });
 
@@ -1051,17 +1052,31 @@ apiHandler = require('./api')({
 });
 console.log(WEBAPP_URL ? `📱 Mini App ulandi: ${WEBAPP_URL}` : '📱 Mini App URL qo\'yilmagan (WEBAPP_URL)');
 
-bot.command(['suhbatlash', 'app'], async (ctx) => {
+// Xabar maydoni tepasida doimiy turadigan tugma
+const voiceKeyboard = WEBAPP_URL ? {
+    keyboard: [[{ text: '🎙 Ovozli suhbat', web_app: { url: WEBAPP_URL } }]],
+    resize_keyboard: true,
+    is_persistent: true,
+} : undefined;
+
+// Chat menyusidagi tugmani ham Mini App ga bog'lash (ixtiyoriy)
+if (WEBAPP_URL && process.env.WEBAPP_MENU === 'true') {
+    bot.telegram.setChatMenuButton({
+        chatId: myTelegramId,
+        menuButton: { type: 'web_app', text: 'JARVIS', web_app: { url: WEBAPP_URL } },
+    }).then(() => console.log('📱 Menyu tugmasi Mini App ga bog\'landi.'))
+        .catch((e) => console.warn('Menyu tugmasi:', e.message));
+}
+
+bot.command(['suhbatlash', 'app', 'tugma'], async (ctx) => {
     if (!WEBAPP_URL) {
         return ctx.reply(
             "📱 Mini App manzili qo'yilmagan.\n\n" +
             "Render'da WEBAPP_URL o'zgaruvchisiga sahifa manzilini yozing."
         );
     }
-    await ctx.reply('🎙 Ovozli suhbat', {
-        reply_markup: {
-            inline_keyboard: [[{ text: '🎙 JARVIS bilan gaplashish', web_app: { url: WEBAPP_URL } }]],
-        },
+    await ctx.reply('🎙 Tugma qo\'yildi — endi xabar maydoni tepasida turadi.', {
+        reply_markup: voiceKeyboard,
     });
 });
 
