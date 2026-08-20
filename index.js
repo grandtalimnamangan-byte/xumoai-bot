@@ -1045,25 +1045,32 @@ const memoryApi = require('./memory')(bot, { genAI, MODEL, supabase, sendFormatt
 // ==================== MINI APP ====================
 const WEBAPP_URL = process.env.WEBAPP_URL || '';
 
+// Maxfiy kalit — Telegram imzosi ishlamagan holatlar uchun zaxira yo'l.
+// Faqat bot yuborgan havolada bo'ladi, ya'ni faqat siz bilasiz.
+const APP_KEY = process.env.WEBAPP_KEY || require('crypto').randomBytes(16).toString('hex');
+const webappLink = WEBAPP_URL
+    ? WEBAPP_URL + (WEBAPP_URL.includes('?') ? '&' : '?') + 'k=' + APP_KEY
+    : '';
+
 apiHandler = require('./api')({
-    genAI, MODEL, token, myTelegramId,
+    genAI, MODEL, token, myTelegramId, appKey: APP_KEY,
     model, modelNoTools, textToSpeech, pcmToMp3,
     loadHistory, saveHistory, memoryApi, MAX_HISTORY,
 });
 console.log(WEBAPP_URL ? `📱 Mini App ulandi: ${WEBAPP_URL}` : '📱 Mini App URL qo\'yilmagan (WEBAPP_URL)');
 
 // Xabar maydoni tepasida doimiy turadigan tugma
-const voiceKeyboard = WEBAPP_URL ? {
-    keyboard: [[{ text: '🎙 Ovozli suhbat', web_app: { url: WEBAPP_URL } }]],
+const voiceKeyboard = webappLink ? {
+    keyboard: [[{ text: '🎙 Ovozli suhbat', web_app: { url: webappLink } }]],
     resize_keyboard: true,
     is_persistent: true,
 } : undefined;
 
 // Chat menyusidagi tugmani ham Mini App ga bog'lash (ixtiyoriy)
-if (WEBAPP_URL && process.env.WEBAPP_MENU === 'true') {
+if (webappLink && process.env.WEBAPP_MENU === 'true') {
     bot.telegram.setChatMenuButton({
         chatId: myTelegramId,
-        menuButton: { type: 'web_app', text: 'JARVIS', web_app: { url: WEBAPP_URL } },
+        menuButton: { type: 'web_app', text: 'JARVIS', web_app: { url: webappLink } },
     }).then(() => console.log('📱 Menyu tugmasi Mini App ga bog\'landi.'))
         .catch((e) => console.warn('Menyu tugmasi:', e.message));
 }

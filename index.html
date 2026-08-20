@@ -263,11 +263,14 @@ function toBase64(bytes) {
 }
 
 // ==================== SERVER BILAN ALOQA ====================
+// Havoladagi maxfiy kalit — Telegram imzosi ishlamagan holatlar uchun
+const APP_KEY = new URLSearchParams(location.search).get('k') || '';
+
 async function post(path, data) {
   const res = await fetch(API + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...data, initData: tg?.initData || '' }),
+    body: JSON.stringify({ ...data, initData: tg?.initData || '', key: APP_KEY }),
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(j.error || ('HTTP ' + res.status));

@@ -7,7 +7,7 @@ const crypto = require('crypto');
 
 module.exports = function createApi(deps) {
     const {
-        genAI, MODEL, token, myTelegramId,
+        genAI, MODEL, token, myTelegramId, appKey,
         model, modelNoTools, textToSpeech, pcmToMp3,
         loadHistory, saveHistory, memoryApi, MAX_HISTORY,
     } = deps;
@@ -200,12 +200,25 @@ module.exports = function createApi(deps) {
         try { body = await readBody(req); }
         catch (e) { json(res, 400, { error: e.message }); return true; }
 
-        const user = checkInitData(body.initData || '');
-        if (!user) {
-            json(res, 401, { error: `Imzo tekshirilmadi\n\n${lastAuthDebug || ''}` });
+        // Kirish tekshiruvi: maxfiy kalit yoki Telegram imzosi
+        let allowed = false;
+
+        if (appKey && body.key === appKey) {
+            allowed = true;   // havoladagi maxfiy kalit to'g'ri
+        } else {
+            const user = checkInitData(body.initData || '');
+            if (user && user.id === myTelegramId) allowed = true;
+            else if (user) { json(res, 403, { error: "Ruxsat yo'q" }); return true; }
+        }
+
+        if (!allowed) {
+            json(res, 401, {
+                error: `Kirish rad etildi.\n\nKalit: ${body.key ? 'kelgan, lekin mos emas' : 'kelmagan'}\n` +
+                    `Imzo: ${lastAuthDebug || 'tekshirilmadi'}\n\n` +
+                    `Mini App ni /suhbatlash orqali qayta oching.`,
+            });
             return true;
         }
-        if (user.id !== myTelegramId) { json(res, 403, { error: 'Ruxsat yo\'q' }); return true; }
 
         try {
             // --- Ovozli so'rov ---
