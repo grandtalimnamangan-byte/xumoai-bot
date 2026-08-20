@@ -1054,6 +1054,9 @@ bot.command('ovoz', async (ctx) => {
     }
 });
 
+// ==================== FAYL VA HAVOLA O'QISH ====================
+const filesApi = require('./files');
+
 // ==================== CHEKSIZ XOTIRA ====================
 const memoryApi = require('./memory')(bot, { genAI, MODEL, supabase, sendFormatted, geminiApiKey });
 
@@ -1160,14 +1163,65 @@ bot.on('message', async (ctx) => {
         }
         if (m.document) {
             const mime = m.document.mime_type || '';
-            const supported = ['application/pdf', 'text/plain', 'text/csv', 'text/markdown'];
-            if (supported.includes(mime) && m.document.file_size < 15 * 1024 * 1024) {
+            const fname = m.document.file_name || '';
+
+            if (m.document.file_size > 20 * 1024 * 1024) {
+                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+                    'Fayl juda katta (20 MB dan oshmasin).');
+                return;
+            }
+
+            // Word, Excel, PowerPoint — matnini o'zimiz ajratamiz
+            const kind = filesApi.kindOf(mime, fname);
+            if (kind && kind !== 'pdf') {
+                try {
+                    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined, 'Fayl o\'qilyapti...');
+
+                    const link = await ctx.telegram.getFileLink(m.document.file_id);
+                    const res = await fetch(link.href);
+                    const buf = Buffer.from(await res.arrayBuffer());
+
+                    const doc = await filesApi.extractDocument(buf, mime, fname);
+                    if (doc) {
+                        parts[0] = {
+                            text: `${text}\n\n=== FAYL: ${fname} (${doc.kind}) ===\n${doc.text}\n=== FAYL TUGADI ===`,
+                        };
+                        mediaNote = ` [${doc.kind}: ${fname}]`;
+                    }
+                } catch (e) {
+                    await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+                        `Faylni o'qib bo'lmadi: ${e.message}`);
+                    return;
+                }
+            } else if (['application/pdf', 'text/plain', 'text/csv', 'text/markdown'].includes(mime)) {
+                // PDF va oddiy matnni Gemini o'zi ko'radi
                 parts.push(await fileToPart(ctx, m.document.file_id, mime));
                 mediaNote = ' [hujjat yuborilgan]';
             } else {
                 await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
-                    `Bu format qo'llab-quvvatlanmaydi (${mime || "noma'lum"}). PDF, TXT yoki CSV yuboring.`);
+                    `Bu format qo'llab-quvvatlanmaydi (${mime || fname || "noma'lum"}).\n\n` +
+                    `Qo'llanadi: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV, TXT`);
                 return;
+            }
+        }
+
+        // Xabarda havola bo'lsa — sahifani o'qib beramiz
+        if (m.text) {
+            const links = filesApi.findLinks(text);
+            if (links.length) {
+                await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, undefined,
+                    `Havola o'qilyapti...`).catch(() => {});
+
+                let linkText = '';
+                for (const url of links) {
+                    try {
+                        const page = await filesApi.fetchLink(url);
+                        linkText += `\n\n=== SAHIFA: ${page.title} (${url}) ===\n${page.text.slice(0, 25000)}\n=== SAHIFA TUGADI ===`;
+                    } catch (e) {
+                        linkText += `\n\n[${url} — ochilmadi: ${e.message}]`;
+                    }
+                }
+                if (linkText) parts[0] = { text: text + linkText };
             }
         }
 
