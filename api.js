@@ -13,26 +13,67 @@ module.exports = function createApi(deps) {
     } = deps;
 
     // ==================== TELEGRAM IMZOSINI TEKSHIRISH ====================
-    // Faqat haqiqiy Telegram foydalanuvchisi kira olishi uchun
+    // Telegram mijoz versiyasiga qarab initData tarkibi farq qiladi,
+    // shuning uchun bir necha variantni ketma-ket sinaymiz.
+    let lastAuthDebug = null;
+
+    function buildHash(params, exclude) {
+        const p = new URLSearchParams(params.toString());
+        exclude.forEach((k) => p.delete(k));
+
+        const dataCheck = [...p.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([k, v]) => `${k}=${v}`)
+            .join('\n');
+
+        const secret = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
+        return crypto.createHmac('sha256', secret).update(dataCheck).digest('hex');
+    }
+
     function checkInitData(initData) {
+        if (!initData) { lastAuthDebug = 'initData bo\'sh'; return null; }
+
         try {
             const params = new URLSearchParams(initData);
             const hash = params.get('hash');
-            if (!hash) return null;
+            if (!hash) { lastAuthDebug = 'hash maydoni yo\'q'; return null; }
 
-            params.delete('hash');
-            const dataCheck = [...params.entries()]
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([k, v]) => `${k}=${v}`)
-                .join('\n');
+            // 1-variant: faqat hash chiqariladi (rasmiy hujjat bo'yicha)
+            // 2-variant: hash va signature chiqariladi (yangi mijozlar)
+            const variants = [['hash'], ['hash', 'signature']];
+            let matched = false;
+            const calcs = [];
 
-            const secret = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
-            const calc = crypto.createHmac('sha256', secret).update(dataCheck).digest('hex');
-            if (calc !== hash) return null;
+            for (const ex of variants) {
+                const calc = buildHash(params, ex);
+                calcs.push(`${ex.join('+')}: ${calc.slice(0, 12)}`);
+                if (calc === hash) { matched = true; break; }
+            }
+
+            if (!matched) {
+                lastAuthDebug =
+                    `hash mos kelmadi\n` +
+                    `kelgan: ${hash.slice(0, 12)}\n` +
+                    `hisoblangan → ${calcs.join(' | ')}\n` +
+                    `maydonlar: ${[...params.keys()].join(', ')}`;
+                console.warn('Mini App imzosi:', lastAuthDebug);
+                return null;
+            }
+
+            // Eskirgan imzo (24 soatdan oshgan) qabul qilinmaydi
+            const authDate = parseInt(params.get('auth_date') || '0', 10);
+            if (authDate && Date.now() / 1000 - authDate > 86400) {
+                lastAuthDebug = 'imzo eskirgan — Mini App ni qayta oching';
+                return null;
+            }
 
             const user = JSON.parse(params.get('user') || '{}');
-            return user.id ? user : null;
-        } catch {
+            if (!user.id) { lastAuthDebug = 'user maydoni yo\'q'; return null; }
+
+            lastAuthDebug = null;
+            return user;
+        } catch (e) {
+            lastAuthDebug = `tekshirishda xato: ${e.message}`;
             return null;
         }
     }
@@ -160,7 +201,10 @@ module.exports = function createApi(deps) {
         catch (e) { json(res, 400, { error: e.message }); return true; }
 
         const user = checkInitData(body.initData || '');
-        if (!user) { json(res, 401, { error: 'Imzo tekshirilmadi' }); return true; }
+        if (!user) {
+            json(res, 401, { error: `Imzo tekshirilmadi\n\n${lastAuthDebug || ''}` });
+            return true;
+        }
         if (user.id !== myTelegramId) { json(res, 403, { error: 'Ruxsat yo\'q' }); return true; }
 
         try {
