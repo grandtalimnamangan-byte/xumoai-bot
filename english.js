@@ -56,21 +56,44 @@ XARAKTER:
 - XATO uchun HECH QACHON so'kma — xatoni sovuqqonlik bilan tushuntir.
 - DANGASALIK uchun (dars qoldirish, yarim ishlash) o'zbekcha hazil qarg'ishlar: "Paloving tuzsiz chiqsin!", "Telefoning 1% da qolib ketsin!". Faqat dangasalikka, hech qachon shaxsga emas.
 
-DARS TUZILISHI:
-1. 🔥 **Bugungi maqsad** — 1 jumla.
-2. 📖 **Nazariya** — o'zbekcha, 5-7 jumla. Qoidani o'zbek tili bilan solishtir.
-3. 🧩 **Mashqlar** — 8-10 ta, turli xil: bo'sh joy, tarjima, xatoni top, qayta yoz.
-4. 💬 **Jonli topshiriq** — Humoyun SMM menejer, o'quv markazida ishlaydi, kontent yaratadi. Mashqlarni shu hayotga bog'la.
-5. ✍️ **Uy vazifasi** — 1 ta yozma topshiriq.
+ENG MUHIM QOIDA — SEN AVVAL O'RGATASAN, KEYIN SO'RAYSAN.
+Savol berish o'rgatish emas. Har dars to'liq tushuntirishdan boshlanadi.
+Mashqda FAQAT shu darsda o'rgatilgan narsa bo'lishi mumkin. O'tilmagan grammatika yoki o'rgatilmagan so'zni mashqqa QO'SHMA.
 
-QOIDALAR:
-- Javoblarni BERMA. Humoyun yozgandan keyin tekshirasan.
-- Tushuntirish o'zbekcha, mashq inglizcha.
-- Har darsda oldingi mavzulardan 2 ta savol takrorla.
-- Zerikarli bo'lma: real vaziyatlar, kutilmagan misollar.
+DARS TUZILISHI — aynan shu tartibda:
 
-MAJBURIY: darsning eng oxirida, alohida qatorda, shu darsda uchragan 6 ta yangi so'zni quyidagi formatda yoz:
+1. 🎯 **Bugungi mavzu** — nomi va nima uchun kerakligi (1-2 jumla).
+
+2. 📔 **LUG'AT** — 10-12 ta so'z. Har biri alohida qatorda, aynan shu ko'rinishda:
+   **word** [talaffuz] — o'zbekcha tarjima
+   _Misol gap._ — tarjimasi
+   So'zlar bugungi mavzuga tegishli bo'lsin. Talaffuzni o'zbek harflari bilan yoz (masalan: [wo:k] emas, [uo:k]).
+
+3. 📖 **NAZARIYA** — to'liq tushuntirish, quyidagilarni o'z ichiga olsin:
+   - Qoida — sodda o'zbek tilida
+   - Sxema yoki formula (masalan: Subject + am/is/are + ...)
+   - Kamida 5 ta misol gap, har biri tarjimasi bilan
+   - Inkor va so'roq shakli alohida
+   - Istisnolar va tez-tez uchraydigan xatolar
+   - **O'zbek tili bilan farq** — o'zbekchada bu qanday ifodalanadi va nima uchun chalkashadi
+   Bu bo'lim eng uzun bo'lishi kerak. Qisqartirma.
+
+4. 🧩 **MASHQLAR** — 10-12 ta, oson dan qiyinga:
+   - Avval: to'g'ri variantni tanlash yoki bo'sh joyni to'ldirish
+   - Keyin: xatoni topib tuzatish
+   - Oxirida: o'zbekchadan inglizchaga tarjima
+   Mashqlarda FAQAT yuqoridagi lug'at va nazariyadagi materialdan foydalan.
+
+QAT'IY TAQIQLAR:
+- Uy vazifasi BERMA. U dars tekshirilgandan keyin alohida beriladi.
+- Javoblarni berma — Humoyun o'zi yozadi.
+- SMM, marketing, ish yoki kontent mavzularini mashqqa aralashtirma. Bu ingliz tili darsi, ish emas.
+- Mavzudan chetga chiqma.
+
+MAJBURIY: darsning eng oxirida, alohida qatorda, lug'atdagi so'zlarni shu formatda takrorla:
 WORDS=word1|o'zbekcha ma'no;word2|o'zbekcha ma'no;...
+va yana bir qatorda:
+TOPIC=<mavzu nomi>
 
 ${FORMAT}`,
     });
@@ -406,15 +429,18 @@ ${inRecovery ? `\n⚠️ TIKLANISH REJIMI: Humoyun ${gapDays} kun tanaffusdan ke
 ALLAQACHON O'TILGAN MAVZULAR (bularni QAYTA berma, yangi mavzu ol):
 ${coveredList}
 
-TAKRORLANAYOTGAN XATOLAR (mashqlarning kamida 3 tasi aynan shu xatolarga qaratilsin):
+TAKRORLANAYOTGAN XATOLAR (agar bugungi mavzuga aloqador bo'lsa, mashqlarda hisobga ol):
 ${mistakeList}
 
-SPIRAL TAKROR (mashqlarning 2 tasi shu eski mavzulardan bo'lsin): ${spiral}
+SPIRAL TAKROR (faqat bugungi mavzu bilan bog'lansa ishlat): ${spiral}
 
 Dastur rejasi (chetga chiqma):
 ${SYLLABUS}
 
 Kun ${newDay} qaysi bosqichga to'g'ri kelsa, o'sha bosqichdan hali o'tilmagan BITTA mavzu ol.
+Faqat SHU BITTA mavzuni o'rgat. Bir darsda ikkita mavzu bo'lmasin.
+
+ESLATMA: uy vazifasi berma — u keyin alohida beriladi.
 Oxirida WORDS= qatori va alohida qatorda TOPIC=<mavzu nomi> yoz.`
             );
 
@@ -443,7 +469,8 @@ Oxirida WORDS= qatori va alohida qatorda TOPIC=<mavzu nomi> yoz.`
             });
             await logActivity(ctx.chat.id, 'lesson', null, `kun ${newDay}`);
 
-            const footer = `\n\n📝 ${added} ta yangi so'z bazaga yozildi — **ertaga** /word da so'raladi.` +
+            const footer = `\n\n📔 ${added} ta so'z lug'atga qo'shildi — **ertaga** /word da so'raladi.\n` +
+                `✍️ Mashqlarni yozib yuboring — tekshiraman va uy vazifasini beraman.` +
                 (WEEK_FOCUS[wd].cmd ? `\n🎯 Bugungi fokus: ${WEEK_FOCUS[wd].name} → ${WEEK_FOCUS[wd].cmd}` : '');
 
             const daysLeft = p.target_date
@@ -1121,7 +1148,7 @@ MUHIM: yakka so'z EMAS, balki birga ishlatiladigan bo'laklar:
 
 Allaqachon o'rganilgan, QAYTARMA: ${known || "yo'q"}
 
-Har biri uchun: birikma, o'zbekcha ma'nosi, misol gap (o'quvchi SMM menejer, o'quv markazida ishlaydi — misollarni shu hayotga bog'la).
+Har biri uchun: birikma, o'zbekcha ma'nosi va oddiy kundalik misol gap (uy, ovqat, sayohat, do'kon, oila).
 
 FAQAT JSON:
 [{"word":"make a decision","meaning":"qaror qabul qilmoq","example":"We make a decision every Monday."}]`
@@ -1203,7 +1230,7 @@ Gaplar shulardan tuzilsin:
 - Takrorlanuvchi xatolar (4 ta gap aynan shularga tegsin): ${mistakes.map((m) => m.topic).join(', ') || "yo'q"}
 - O'rganilgan so'zlar: ${(vocab || []).map((v) => v.word).slice(0, 25).join(', ') || 'oddiy so\'zlar'}
 
-Gaplar kundalik hayotdan bo'lsin (ish, o'quv markaz, oila, ovqat, telefon).
+Gaplar kundalik hayotdan bo'lsin (oila, ovqat, uy, do'kon, sayohat, ob-havo).
 Raqamlab yoz. Inglizcha javoblarni BERMA.
 
 Boshida bitta qator: "⏱ Sekundomerni yoqing — 15 gap uchun maqsad 5 daqiqa."
@@ -1782,7 +1809,7 @@ ${FORMAT}`
                 `O'zbek o'quvchisi "${g.name}" ildizli phrasal verb larni o'rganyapti.\n` +
                 `Iboralar: ${g.verbs.join('; ')}\n\n` +
                 `1. 🧠 **Mantiq** — bu guruhda predlog ma'noni qanday o'zgartirishini tushuntir (up, off, out, over ning umumiy mantiqi).\n` +
-                `2. 🧩 **8 ta mashq** — gapda to'g'ri phrasal verb ni qo'yish. Kontekst Humoyunning hayotidan: SMM, o'quv markazi, kontent.\n` +
+                `2. 🧩 **8 ta mashq** — gapda to'g'ri phrasal verb ni qo'yish. Kontekst oddiy kundalik hayot.\n` +
                 `3. ✍️ **3 ta tarjima** — o'zbekchadan inglizchaga.\n\n` +
                 `Javoblarni BERMA. Qisqa yoz.\n\n${FORMAT}`
             );
@@ -2064,10 +2091,22 @@ ${FORMAT}`
 
             const msg = await ctx.reply('📝 Mr. Grim tekshiryapti...');
             try {
+                const topics = await getTopics(ctx.chat.id, 1);
+                const topic = topics[0]?.topic || `kun ${p.day_number}`;
+
                 const result = await teacher.generateContent(
-                    `Humoyun dars mashqlariga javob berdi (kun ${p.day_number}, daraja ${p.level}).\n\n` +
+                    `Humoyun bugungi dars mashqlariga javob berdi.\n` +
+                    `Mavzu: ${topic}\nKun: ${p.day_number}, daraja: ${p.level}\n\n` +
                     `Javoblari:\n${txt}\n\n` +
-                    `Har javobni tekshir: ✅/❌, to'g'ri variant, qisqa izoh. Oxirida umumiy natija va 1 ta tavsiya. ` +
+                    `Javobing tuzilishi:\n\n` +
+                    `1. ✅ **Tekshiruv** — har javob uchun ✅ yoki ❌, to'g'ri variant va NEGA shunday (qisqa izoh).\n` +
+                    `2. 📊 **Natija** — X/N va bir jumlalik halol baho.\n` +
+                    `3. 🔁 **Tushunmagan joying** — agar xato ko'p bo'lsa, o'sha qoidani QAYTA tushuntir (3-4 jumla, yangi misol bilan).\n` +
+                    `4. ✍️ **UY VAZIFASI** — endi ber. Aynan qilgan xatolariga qaratilgan bo'lsin:\n` +
+                    `   - 5 ta mashq (xato qilgan joyi bo'yicha)\n` +
+                    `   - 1 ta yozma topshiriq: 4-5 gap, bugungi mavzu va lug'atdan foydalanib\n` +
+                    `   Agar hamma javob to'g'ri bo'lsa, uy vazifasi qiyinroq bo'lsin.\n\n` +
+                    `TAQIQ: yangi grammatika o'rgatma, yangi so'z kiritma. Faqat bugungi mavzu doirasida qol.\n` +
                     `WORDS= va TOPIC= qatorlarini bu safar YOZMA.\n${MISTAKE_SPEC}`
                 );
                 const out = result.response.text();
