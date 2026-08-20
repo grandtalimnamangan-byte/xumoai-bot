@@ -393,7 +393,7 @@ const TTS_MODELS = (process.env.TTS_MODEL || 'gemini-2.5-flash-preview-tts,gemin
 
 let lastTtsDebug = null;
 
-async function ttsOnce(modelName, text) {
+async function ttsOnce(modelName, text, voiceName) {
     const styled = (STYLES[voiceStyle] || '') + text;
     const res = await fetch(`${API_BASE}/models/${modelName}:generateContent?key=${geminiApiKey}`, {
         method: 'POST',
@@ -402,7 +402,7 @@ async function ttsOnce(modelName, text) {
             contents: [{ parts: [{ text: styled }] }],
             generationConfig: {
                 responseModalities: ['AUDIO'],
-                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentVoice } } },
+                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName || currentVoice } } },
             },
         }),
     });
@@ -428,11 +428,11 @@ async function ttsOnce(modelName, text) {
     return { pcm: Buffer.from(part.inlineData.data, 'base64'), rate };
 }
 
-async function textToSpeech(text) {
+async function textToSpeech(text, voiceName = null) {
     const errors = [];
     for (const m of TTS_MODELS) {
         try {
-            const audio = await ttsOnce(m, text);
+            const audio = await ttsOnce(m, text, voiceName);
             console.log(`TTS muvaffaqiyatli: ${m}`);
             return audio;
         } catch (e) {
@@ -1117,9 +1117,9 @@ require('./projects')(bot, { genAI, MODEL, supabase, sendFormatted });
 // ==================== INGLIZ TILI MODULI ====================
 require('./english')(bot, {
     genAI, MODEL, supabase, sendFormatted, esc, myTelegramId, geminiApiKey,
-    // Ovoz yuborish — index.js dagi ishlaydigan yo'l
-    speak: async (ctx, text) => {
-        const audio = await textToSpeech(text);
+    // Ovoz yuborish — har ustoz o'z ovozi bilan
+    speak: async (ctx, text, voiceName = null) => {
+        const audio = await textToSpeech(text, voiceName);
         return deliverAudio(ctx, audio, 'JARVIS');
     },
 });

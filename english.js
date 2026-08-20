@@ -98,6 +98,78 @@ TOPIC=<mavzu nomi>
 ${FORMAT}`,
     });
 
+    // ==================== USTOZLAR OVOZI ====================
+    const VOICES = {
+        grim: 'Fenrir',      // qat'iy, kuchli
+        hawk: 'Iapetus',     // aniq, quruq
+        word: 'Aoede',       // ayol, iliq
+        rule: 'Charon',      // chuqur, xotirjam
+        echo: 'Orus',        // ravon, neytral — talaffuz namunasi uchun eng mos
+        page: 'Zephyr',      // ayol, yengil
+        quill: 'Kore',       // ayol, rasmiy
+        clark: 'Algieba',    // erkak, rasmiy
+        danny: 'Puck',       // jonli, do'stona
+    };
+
+    const VOICE_ON = process.env.ENG_VOICE !== 'false';
+
+    // Matndan faqat INGLIZCHA gaplarni ajratamiz.
+    // TTS o'zbekchani yomon o'qiydi, va sizga inglizcha eshitish kerak.
+    const UZ_MARK = /[ʻʼ‘’]|\b(va|yoki|uchun|bilan|kerak|qil\w*|bo'l\w*|so'z|gap|misol|tarjima|mashq|javob|dars|talaffuz|qoida|nazariya|lug'at|mavzu|shakl|zamon|fe'l|ot|sifat|men|sen|siz|biz|ular|bu|shu|har|ham|emas|yo'q|bor)\b/i;
+
+    function englishOnly(text, limit = 900) {
+        const out = [];
+
+        for (let raw of text.split('\n')) {
+            let line = raw
+                .replace(/\*\*|__|\*|`|#{1,6}\s*/g, '')
+                .replace(/\[[^\]]*\]/g, '')            // [talaffuz]
+                .replace(/\([^)]*\)/g, '')             // qavs ichidagi izohlar
+                .replace(/_/g, '')
+                .replace(/^\s*[\d.)•\-—]+\s*/, '')
+                .replace(/[\p{Extended_Pictographic}]/gu, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            if (line.length < 8) continue;
+
+            // Tire yoki ikki nuqtadan keyingi o'zbekcha qismni kesamiz
+            const dash = line.search(/\s[—–]\s/);
+            if (dash > 0) line = line.slice(0, dash).trim();
+
+            // Bo'sh joy qoldirilgan mashq gaplari o'qilmaydi
+            if (/_{2,}|\.{3,}/.test(raw)) continue;
+
+            // O'zbekcha belgi bo'lsa — tashlab ketamiz
+            if (UZ_MARK.test(line)) continue;
+
+            // Lotin harflar ulushi past bo'lsa — inglizcha emas
+            const letters = (line.match(/[a-zA-Z]/g) || []).length;
+            if (letters / line.length < 0.7) continue;
+
+            // Kamida ikki so'z bo'lsin
+            if (line.split(' ').length < 2) continue;
+
+            out.push(line.replace(/[.!?]+$/, ''));
+            if (out.join('. ').length > limit) break;
+        }
+
+        return out.join('. ').slice(0, limit);
+    }
+
+    // Ustoz ovozida yuborish — xato bo'lsa jim o'tadi
+    async function voice(ctx, who, text) {
+        if (!VOICE_ON || !speak || !text) return false;
+        const clean = englishOnly(text);
+        if (clean.length < 20) return false;
+        try {
+            return await speak(ctx, clean, VOICES[who]);
+        } catch (e) {
+            console.warn(`${who} ovozi:`, e.message);
+            return false;
+        }
+    }
+
     // ==================== MR. HAWK — TEKSHIRUVCHI ====================
     const checker = genAI.getGenerativeModel({
         model: MODEL,
@@ -623,6 +695,9 @@ Oxirida WORDS= qatori va alohida qatorda TOPIC=<mavzu nomi> yoz.`
 
             await sendFormatted(ctx, msg.message_id, `${header}\n\n${lesson}${footer}`);
 
+            // Mr. Grim lug'at va misol gaplarni o'qib beradi
+            voice(ctx, 'grim', lesson).catch(() => {});
+
         } catch (e) {
             console.error('Dars xatosi:', e);
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
@@ -656,6 +731,7 @@ FAQAT JSON massiv qaytar:
                 await addWords(ctx.chat.id, words);
                 await logActivity(ctx.chat.id, 'vocab_new', words.length);
 
+                voice(ctx, 'word', words.map((w) => `${w.word}. ${w.example || ''}`).join('\n')).catch(() => {});
                 await sendFormatted(ctx, msg.message_id,
                     `📝 **10 ta yangi so'z**\n\n` +
                     words.map((w, i) => `${i + 1}. **${w.word}** — ${w.meaning}\n   *${w.example || ''}*`).join('\n\n') +
@@ -933,6 +1009,7 @@ FAQAT JSON:
             sessions.set(ctx.chat.id, { type: 'read_test', data });
             await setMode(ctx.chat.id, 'read_test');
 
+            voice(ctx, 'page', data.passage).catch(() => {});
             await sendFormatted(ctx, msg.message_id,
                 `📖 **Reading**\n\n${data.passage}\n\n❓ **Savollar**\n${data.questions.join('\n')}\n\n` +
                 `Javoblarni bitta xabarda raqamlab yozing.`);
@@ -1066,8 +1143,10 @@ Namuna esse YOZMA — o'quvchi o'zi yozadi.\n\n${FORMAT}`
                 topic ? `Start a casual conversation about: ${topic}. Greet your friend first.`
                     : `Greet your friend and start a casual conversation. Ask what he's been up to today.`
             );
+            const greeting = result.response.text();
             await sendFormatted(ctx, msg.message_id,
-                `${result.response.text()}\n\n_(Suhbat rejimi. Ovozli xabar ham yuboring. Chiqish: /stop)_`);
+                `${greeting}\n\n_(Suhbat rejimi. Ovozli xabar ham yuboring. Chiqish: /stop)_`);
+            voice(ctx, 'danny', greeting).catch(() => {});
             await logActivity(ctx.chat.id, 'speak_start');
         } catch (e) {
             await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
@@ -1188,6 +1267,7 @@ ${FORMAT}`
             sessions.set(ctx.chat.id, { type: 'ielts_speaking', data: { questions: q } });
             await setMode(ctx.chat.id, 'ielts_speaking');
 
+            voice(ctx, 'clark', q).catch(() => {});
             await sendFormatted(ctx, msg.message_id,
                 `${q}\n\n🎤 **Ovozli xabar** yuboring — imtihonchi band ball qo'yadi.\n(Matn bilan ham bo'ladi, lekin talaffuz baholanmaydi.)\nBekor qilish: /stop`);
         } catch (e) {
@@ -1476,6 +1556,7 @@ ${FORMAT}`
             sessions.set(ctx.chat.id, { type: 'pronunciation', data: { sound: s.name, text: gen.response.text() } });
             await setMode(ctx.chat.id, 'pronunciation');
 
+            voice(ctx, 'echo', gen.response.text()).catch(() => {});
             await sendFormatted(ctx, msg.message_id,
                 `${gen.response.text()}\n\n🎤 **10 ta so'z va 3 ta gapni ovozli xabarda o'qing** — tekshiraman.\nBekor qilish: /stop`);
         } catch (e) {
@@ -2217,23 +2298,24 @@ ${FORMAT}`
     bot.command(['ustozlar', 'ustoz'], (ctx) => ctx.reply(
         `👨‍🏫 Sizning ustozlaringiz\n\n` +
         `🎓 Mr. Grim — bosh ustoz, grammatika o'rgatadi\n` +
-        `   /eng\n\n` +
+        `   /eng · ovozi: Fenrir\n\n` +
         `🦅 Mr. Hawk — tekshiruvchi, bironta xatoni o'tkazmaydi\n` +
         `   dars javoblari, uy vazifasi, barcha testlar\n\n` +
         `📔 Ms. Word — lug'at ustasi\n` +
-        `   /word · /chunk · /phrasal\n\n` +
+        `   /word · /chunk · /phrasal · ovozi: Aoede\n\n` +
         `🩺 Dr. Rule — grammatika shifokori, xato sababini topadi\n` +
         `   /artikl · /fellar · /drill · /xato · /test\n\n` +
         `🔊 Mr. Echo — talaffuz va tinglash\n` +
-        `   /talaffuz · /audio · /diktant · /listen\n\n` +
+        `   /talaffuz · /audio · /diktant · ovozi: Orus\n\n` +
         `📖 Ms. Page — o'qish strategiyalari\n` +
-        `   /read\n\n` +
+        `   /read · ovozi: Zephyr\n\n` +
         `✒️ Ms. Quill — IELTS Writing imtihonchisi\n` +
         `   /essay · /write\n\n` +
         `🎤 Mr. Clark — IELTS Speaking imtihonchisi\n` +
-        `   /ielts\n\n` +
+        `   /ielts · ovozi: Algieba\n\n` +
         `😄 Danny — do'st, erkin suhbat (o'qituvchi emas)\n` +
-        `   /speak`
+        `   /speak · ovozi: Puck\n\n` +
+        `🔇 Ovozni o'chirish: Render'da ENG_VOICE = false`
     ));
 
     // ==================== /progress ====================
@@ -2393,6 +2475,7 @@ ${FORMAT}`
                 });
 
                 await sendFormatted(ctx, msg.message_id, reply);
+                voice(ctx, 'danny', reply).catch(() => {});
             } catch (e) {
                 await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ Xatolik: ${e.message}`);
             }
