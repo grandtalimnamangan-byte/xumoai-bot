@@ -1105,6 +1105,9 @@ bot.command(['suhbatlash', 'app', 'tugma'], async (ctx) => {
     });
 });
 
+// ==================== HAFTALIK TOZALASH ====================
+require('./cleanup')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
+
 // ==================== VAZIFALAR ====================
 const taskApi = require('./tasks')(bot, { genAI, MODEL, supabase, sendFormatted, myTelegramId });
 
@@ -1350,7 +1353,9 @@ bot.command(['ishlar', 'loyihalar'], (ctx) => ctx.reply(
     `/holat — loyiha holatini yangilash\n` +
     `/hisob — moliyaviy hisob-kitob\n` +
     `/harid — tovar tahlili\n` +
-    `/prompt — AI vositalar uchun prompt`
+    `/prompt — AI vositalar uchun prompt\n` +
+    `/tozalash — haftalik tozalash\n` +
+    `/arxiv — eski vazifalarni o'chirish`
 ));
 
 bot.command('sozlama', (ctx) => ctx.reply(
